@@ -20,6 +20,9 @@ export interface Room {
   roomNumber: string;
   roomTypeId: string;
   status: 'AVAILABLE' | 'MAINTENANCE' | 'OCCUPIED' | 'DIRTY';
+  housekeepingStatus: 'READY' | 'DIRTY' | 'CLEANING' | 'INSPECTING';
+  priorityCleaning: boolean;
+  lastCleaned?: number;
   updatedAt: number;
 }
 
@@ -28,6 +31,8 @@ export interface Guest {
   name: string;
   phone?: string;
   email?: string;
+  companyName?: string;
+  gstin?: string;
   updatedAt: number;
 }
 
@@ -40,9 +45,45 @@ export interface Payment {
   updatedAt: number;
 }
 
+export interface RoomType {
+  id: string;
+  propertyId: string;
+  name: string;
+  baseRate: number;
+  capacity: number;
+  description?: string;
+  updatedAt: number;
+}
+
+export interface FolioItem {
+  id: string;
+  bookingId: string;
+  propertyId: string;
+  description: string;
+  amount: number;
+  type: 'ROOM_CHARGE' | 'FB' | 'LAUNDRY' | 'AD_HOC' | 'TAX' | 'PAYMENT';
+  updatedAt: number;
+}
+
+export interface RateOverride {
+  id: string;
+  roomTypeId: string;
+  startDate: string; // ISO date
+  endDate: string; // ISO date
+  rate: number;
+  updatedAt: number;
+}
+
+export interface PropertySetting {
+  id: string; // propertyId
+  taxRate: number;
+  currency: string;
+  updatedAt: number;
+}
+
 export interface SyncQueueItem {
   id?: number;
-  entity: 'bookings' | 'rooms' | 'guests' | 'payments';
+  entity: 'bookings' | 'rooms' | 'guests' | 'payments' | 'roomTypes' | 'folioItems' | 'rateOverrides' | 'propertySettings';
   entityId: string;
   action: 'create' | 'update' | 'delete';
   data: any;
@@ -54,15 +95,23 @@ export class PmsDatabase extends Dexie {
   rooms!: Table<Room>;
   guests!: Table<Guest>;
   payments!: Table<Payment>;
+  roomTypes!: Table<RoomType>;
+  folioItems!: Table<FolioItem>;
+  rateOverrides!: Table<RateOverride>;
+  propertySettings!: Table<PropertySetting>;
   syncQueue!: Table<SyncQueueItem>;
 
   constructor() {
     super('pms_db');
-    this.version(1).stores({
+    this.version(2).stores({
       bookings: 'id, guestId, propertyId, tenantId, status, checkInDate, updatedAt',
       rooms: 'id, roomTypeId, status, updatedAt',
       guests: 'id, name, phone, email, updatedAt',
       payments: 'id, bookingId, status, updatedAt',
+      roomTypes: 'id, propertyId, updatedAt',
+      folioItems: 'id, bookingId, propertyId, type, updatedAt',
+      rateOverrides: 'id, roomTypeId, updatedAt',
+      propertySettings: 'id, updatedAt',
       syncQueue: '++id, entity, entityId, timestamp'
     });
   }
