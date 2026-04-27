@@ -6,31 +6,45 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { motion } from "framer-motion";
-import { Hotel, Loader2, Sparkles } from "lucide-react";
+import { apiClient } from '@/lib/api/client';
+import { AnimatePresence, motion } from "framer-motion";
+import { AlertCircle, Hotel, Loader2, Sparkles } from "lucide-react";
 import { useState } from 'react';
 
 export default function LoginPage() {
   const { login } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSubmit = async (e: React.SubmitEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
     
-    // Simulate API call for now
-    setTimeout(() => {
-      login('mock_token', {
-        id: '1',
-        email: email,
-        name: email.split('@')[0],
-        tenantId: 't1'
+    try {
+      const response = await apiClient.post('/auth/login', {
+        email,
+        password,
+      });
+
+      const { access_token, user } = response.data;
+      
+      login(access_token, {
+        id: user.id,
+        email: user.email,
+        name: user.name || user.email.split('@')[0],
+        role: user.role,
+        tenantId: user.tenantId
       }, rememberMe);
+    } catch (err: any) {
+      console.error('Login failed:', err);
+      setError(err.response?.data?.message || 'Invalid email or password. Please try again.');
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -62,6 +76,20 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-8">
+            <AnimatePresence mode="wait">
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                  animate={{ opacity: 1, height: "auto", marginBottom: 24 }}
+                  exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                  className="bg-destructive/10 border border-destructive/20 text-destructive text-sm p-4 rounded-xl flex items-center gap-3 overflow-hidden"
+                >
+                  <AlertCircle className="h-5 w-5 shrink-0" />
+                  <p className="font-medium">{error}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-2 group">
                 <Label htmlFor="email" className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Work Email</Label>

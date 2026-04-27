@@ -1,17 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { useProperty } from '@/components/providers/property-provider';
-import { db, RoomType, Room } from '@/lib/db/dexie';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { BedDouble, Users, Plus, Save, TrendingUp } from 'lucide-react';
-import { format, addDays, startOfDay, isWithinInterval } from 'date-fns';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { db, Room, RoomType } from '@/lib/db/dexie';
+import { SyncManager } from '@/lib/sync/sync-manager';
+import { addDays, format, isWithinInterval, startOfDay } from 'date-fns';
 import { motion } from 'framer-motion';
+import { BedDouble, Loader2, Plus, Save, TrendingUp, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export default function InventoryPage() {
   const { currentProperty } = useProperty();
@@ -19,23 +21,76 @@ export default function InventoryPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Form State
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    capacity: 2,
+    baseRate: 0,
+    description: ''
+  });
+
+  const loadData = async () => {
+    if (!currentProperty) return;
+    const rt = await db.roomTypes.where('propertyId').equals(currentProperty.id).toArray();
+    const r = await db.rooms.toArray();
+    const b = await db.bookings.where('propertyId').equals(currentProperty.id).toArray();
+    
+    setRoomTypes(rt);
+    setRooms(r);
+    setBookings(b);
+    setIsLoading(false);
+  };
 
   useEffect(() => {
-    if (!currentProperty) return;
-
-    const loadData = async () => {
-      const rt = await db.roomTypes.where('propertyId').equals(currentProperty.id).toArray();
-      const r = await db.rooms.toArray(); // Filtered by type later
-      const b = await db.bookings.where('propertyId').equals(currentProperty.id).toArray();
-      
-      setRoomTypes(rt);
-      setRooms(r);
-      setBookings(b);
-      setIsLoading(false);
-    };
-
     loadData();
   }, [currentProperty]);
+
+  const handleAddRoomType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentProperty) return;
+    
+    setIsSubmitting(true);
+    try {
+      const newType: RoomType = {
+        id: crypto.randomUUID(),
+        propertyId: currentProperty.id,
+        name: formData.name,
+        capacity: formData.capacity,
+        baseRate: formData.baseRate,
+        description: formData.description,
+        updatedAt: Date.now()
+      };
+
+      // 1. Save to local Dexie
+      await db.roomTypes.add(newType);
+
+      // 2. Add to Sync Queue
+      await db.syncQueue.add({
+        entity: 'roomTypes',
+        entityId: newType.id,
+        action: 'create',
+        data: newType,
+        timestamp: Date.now()
+      });
+
+      // 3. Refresh local UI
+      await loadData();
+      
+      // 4. Reset & Close
+      setFormData({ name: '', capacity: 2, baseRate: 0, description: '' });
+      setIsAddOpen(false);
+      
+      // 5. Trigger sync in background
+      SyncManager.syncAll();
+    } catch (error) {
+      console.error('Failed to add room type:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const days = Array.from({ length: 14 }).map((_, i) => addDays(new Date(), i));
 
@@ -60,9 +115,77 @@ export default function InventoryPage() {
           <h1 className="text-3xl font-bold tracking-tight">Inventory & Types</h1>
           <p className="text-muted-foreground">Manage your room products, pricing, and live availability.</p>
         </div>
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" /> Add Room Type
-        </Button>
+        
+        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+          <DialogTrigger
+            render={
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" /> Add Room Type
+              </Button>
+            }
+          />
+          <DialogContent className="sm:max-w-[425px]">
+            <form onSubmit={handleAddRoomType}>
+              <DialogHeader>
+                <DialogTitle>Add Room Type</DialogTitle>
+                <DialogDescription>
+                  Create a new category of rooms for your property.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="name">Name</Label>
+                  <Input 
+                    id="name" 
+                    placeholder="e.g. Deluxe Suite" 
+                    required
+                    value={formData.name}
+                    onChange={e => setFormData({...formData, name: e.target.value})}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="capacity">Capacity</Label>
+                    <Input 
+                      id="capacity" 
+                      type="number" 
+                      min="1"
+                      required
+                      value={formData.capacity}
+                      onChange={e => setFormData({...formData, capacity: parseInt(e.target.value)})}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="rate">Base Rate (₹)</Label>
+                    <Input 
+                      id="rate" 
+                      type="number" 
+                      min="0"
+                      required
+                      value={formData.baseRate}
+                      onChange={e => setFormData({...formData, baseRate: parseFloat(e.target.value)})}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Input 
+                    id="description" 
+                    placeholder="Room specifics..." 
+                    value={formData.description}
+                    onChange={e => setFormData({...formData, description: e.target.value})}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Save Room Type
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <Tabs defaultValue="grid" className="w-full">
@@ -108,7 +231,6 @@ export default function InventoryPage() {
                         {days.map(day => {
                           const avail = getAvailability(type.id, day);
                           const total = rooms.filter(r => r.roomTypeId === type.id).length;
-                          const ratio = avail / total;
                           
                           return (
                             <td key={day.toISOString()} className="p-3 border-b text-center">

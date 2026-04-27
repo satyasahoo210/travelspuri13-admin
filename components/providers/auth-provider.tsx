@@ -3,11 +3,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { apiClient } from '@/lib/api/client';
+import { STORAGE_KEYS } from '@/lib/constants';
 
 interface User {
   id: string;
   email: string;
-  name: string;
+  name?: string | null;
+  role: string;
   tenantId: string;
 }
 
@@ -28,30 +30,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check for stored token on refresh
-    const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-    const storedUser = localStorage.getItem('auth_user') || sessionStorage.getItem('auth_user');
+    const token = localStorage.getItem(STORAGE_KEYS.TOKEN) || sessionStorage.getItem(STORAGE_KEYS.TOKEN);
+    const storedUser = localStorage.getItem(STORAGE_KEYS.USER) || sessionStorage.getItem(STORAGE_KEYS.USER);
 
     if (token && storedUser) {
       setUser(JSON.parse(storedUser));
-    } else {
-      // Not logged in, if on a protected route, redirect later
     }
     setLoading(false);
   }, []);
 
   const login = (token: string, userData: User, rememberMe: boolean = false) => {
     const storage = rememberMe ? localStorage : sessionStorage;
-    storage.setItem('auth_token', token);
-    storage.setItem('auth_user', JSON.stringify(userData));
+    storage.setItem(STORAGE_KEYS.TOKEN, token);
+    storage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
+    // Also store tenantId for API client
+    storage.setItem(STORAGE_KEYS.TENANT_ID, userData.tenantId);
+    
     setUser(userData);
     router.push('/dashboard');
   };
 
   const logout = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
-    sessionStorage.removeItem('auth_token');
-    sessionStorage.removeItem('auth_user');
+    localStorage.removeItem(STORAGE_KEYS.TOKEN);
+    localStorage.removeItem(STORAGE_KEYS.USER);
+    localStorage.removeItem(STORAGE_KEYS.TENANT_ID);
+    localStorage.removeItem(STORAGE_KEYS.PROPERTY_ID);
+    sessionStorage.removeItem(STORAGE_KEYS.TOKEN);
+    sessionStorage.removeItem(STORAGE_KEYS.USER);
+    sessionStorage.removeItem(STORAGE_KEYS.TENANT_ID);
+    sessionStorage.removeItem(STORAGE_KEYS.PROPERTY_ID);
     setUser(null);
     router.push('/login');
   };

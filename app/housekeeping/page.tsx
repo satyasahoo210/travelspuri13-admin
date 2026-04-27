@@ -1,21 +1,21 @@
 'use client';
 
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Room } from '@/lib/db/dexie';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
-  CheckCircle2, 
-  Clock, 
-  AlertCircle, 
-  RefreshCcw, 
-  Zap,
-  MoreVertical,
-  Search
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { db, Room } from '@/lib/db/dexie';
+import { cn } from '@/lib/utils';
+import { useLiveQuery } from 'dexie-react-hooks';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  MoreVertical,
+  RefreshCcw,
+  Search,
+  Zap
+} from 'lucide-react';
 import { useState } from 'react';
 
 const statusColors = {
@@ -72,10 +72,10 @@ export default function HousekeepingPage() {
       {/* Stats Overview */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Dirty', count: rooms?.filter(r => r.housekeepingStatus === 'DIRTY').length || 0, color: 'text-amber-600', bg: 'bg-amber-50' },
-          { label: 'Cleaning', count: rooms?.filter(r => r.housekeepingStatus === 'CLEANING').length || 0, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Inspecting', count: rooms?.filter(r => r.housekeepingStatus === 'INSPECTING').length || 0, color: 'text-purple-600', bg: 'bg-purple-50' },
-          { label: 'Ready', count: rooms?.filter(r => r.housekeepingStatus === 'READY').length || 0, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { label: 'Dirty', count: rooms?.filter(r => r.housekeepingStatus === 'DIRTY').length || 0, color: 'text-amber-600', bg: 'bg-amber-50', icon: AlertCircle },
+          { label: 'Cleaning', count: rooms?.filter(r => r.housekeepingStatus === 'CLEANING').length || 0, color: 'text-blue-600', bg: 'bg-blue-50', icon: Clock },
+          { label: 'Inspecting', count: rooms?.filter(r => r.housekeepingStatus === 'INSPECTING').length || 0, color: 'text-purple-600', bg: 'bg-purple-50', icon: RefreshCcw },
+          { label: 'Ready', count: rooms?.filter(r => r.housekeepingStatus === 'READY').length || 0, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: CheckCircle2 },
         ].map((stat) => (
           <Card key={stat.label} className={cn("border-none shadow-sm", stat.bg)}>
             <div className="p-4 flex justify-between items-center">
@@ -84,7 +84,7 @@ export default function HousekeepingPage() {
                 <h3 className={cn("text-2xl font-black mt-1", stat.color)}>{stat.count}</h3>
               </div>
               <div className={cn("p-2 rounded-lg bg-white/50", stat.color)}>
-                 <RefreshCcw className="h-4 w-4" />
+                 <stat.icon className="h-4 w-4" />
               </div>
             </div>
           </Card>

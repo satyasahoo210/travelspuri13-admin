@@ -1,6 +1,6 @@
 'use client';
 
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const data = [
   { day: "Mon", revenue: 12000, occupancy: 65 },
@@ -19,37 +19,38 @@ export function AnalyticsChart() {
         <AreaChart data={data}>
           <defs>
             <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.1}/>
-              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+              <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.1}/>
+              <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" opacity={0.5} />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.5} />
           <XAxis 
             dataKey="day" 
             axisLine={false} 
             tickLine={false} 
-            tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+            tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
             dy={10}
           />
           <YAxis 
             axisLine={false} 
             tickLine={false} 
-            tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+            tick={{ fontSize: 12, fill: "var(--muted-foreground)" }}
             tickFormatter={(value) => `₹${value/1000}k`}
           />
           <Tooltip 
             contentStyle={{ 
-              backgroundColor: "hsl(var(--popover))", 
-              borderColor: "hsl(var(--border))",
+              backgroundColor: "var(--popover)", 
+              borderColor: "var(--border)",
               borderRadius: "12px",
               boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)"
             }}
-            itemStyle={{ color: "hsl(var(--primary))", fontSize: "12px", fontWeight: "600" }}
+            formatter={(value, name) => [`₹${value}`, "Revenue"]} 
+            itemStyle={{ color: "var(--primary)", fontSize: "12px", fontWeight: "600" }}
           />
           <Area 
             type="monotone" 
             dataKey="revenue" 
-            stroke="hsl(var(--primary))" 
+            stroke="var(--primary)" 
             strokeWidth={3}
             fillOpacity={1} 
             fill="url(#colorRevenue)" 

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { STORAGE_KEYS, API_HEADERS } from '../constants';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -12,18 +13,18 @@ export const apiClient = axios.create({
 // Interceptor to add JWT and Tenant context
 apiClient.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('pms_token');
-    const tenantId = localStorage.getItem('pms_tenant_id');
-    const propertyId = localStorage.getItem('pms_property_id');
+    const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+    const tenantId = localStorage.getItem(STORAGE_KEYS.TENANT_ID);
+    const propertyId = localStorage.getItem(STORAGE_KEYS.PROPERTY_ID);
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     if (tenantId) {
-      config.headers['x-tenant-id'] = tenantId;
+      config.headers[API_HEADERS.TENANT_ID] = tenantId;
     }
     if (propertyId) {
-      config.headers['x-property-id'] = propertyId;
+      config.headers[API_HEADERS.PROPERTY_ID] = propertyId;
     }
   }
   return config;
