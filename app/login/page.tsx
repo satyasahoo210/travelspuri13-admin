@@ -6,18 +6,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiClient } from '@/lib/api/client';
+import { createClient } from '@/lib/utils/supabase/client';
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, Hotel, Loader2, Sparkles } from "lucide-react";
 import { useState } from 'react';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { logout } = useAuth(); // We don't need 'login' from context anymore as it's handled by observer
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const supabase = createClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,23 +26,17 @@ export default function LoginPage() {
     setError(null);
     
     try {
-      const response = await apiClient.post('/auth/login', {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      const { access_token, user } = response.data;
-      
-      login(access_token, {
-        id: user.id,
-        email: user.email,
-        name: user.name || user.email.split('@')[0],
-        role: user.role,
-        tenantId: user.tenantId
-      }, rememberMe);
+      if (authError) throw authError;
+
+      // Note: AuthProvider will detect session change and redirect
     } catch (err: any) {
       console.error('Login failed:', err);
-      setError(err.response?.data?.message || 'Invalid email or password. Please try again.');
+      setError(err.message || 'Invalid email or password. Please try again.');
     } finally {
       setLoading(false);
     }

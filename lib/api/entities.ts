@@ -1,95 +1,175 @@
-import { apiClient } from './client';
+import { createClient } from '../utils/supabase/client';
+
+const supabase = createClient();
 
 export const roomApi = {
   sync: async (lastSyncedAt: number) => {
-    const response = await apiClient.get(`/rooms/sync`, {
-      params: { since: lastSyncedAt }
-    });
-    return response.data;
+    const { data, error } = await supabase
+      .from('Room')
+      .select('*')
+      .gt('updatedAt', new Date(lastSyncedAt).toISOString());
+    
+    if (error) throw error;
+    return { data, timestamp: Date.now() };
   },
   
   create: async (roomData: any) => {
-    const response = await apiClient.post('/rooms', roomData);
-    return response.data;
+    const { data, error } = await supabase
+      .from('Room')
+      .insert([roomData])
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
   update: async (id: string, roomData: any) => {
-    const response = await apiClient.patch(`/rooms/${id}`, roomData);
-    return response.data;
+    const { data, error } = await supabase
+      .from('Room')
+      .update(roomData)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
   updateStatus: async (id: string, status: string) => {
-    const response = await apiClient.patch(`/rooms/${id}/status`, { status });
-    return response.data;
+    const { data, error } = await supabase
+      .from('Room')
+      .update({ status })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   }
 };
 
 export const guestApi = {
   sync: async (lastSyncedAt: number) => {
-    const response = await apiClient.get(`/guest/sync`, {
-      params: { since: lastSyncedAt }
-    });
-    return response.data;
+    const { data, error } = await supabase
+      .from('Guest')
+      .select('*')
+      .gt('updatedAt', new Date(lastSyncedAt).toISOString());
+    
+    if (error) throw error;
+    return { data, timestamp: Date.now() };
   },
   
   create: async (guestData: any) => {
-    const response = await apiClient.post('/guest', guestData);
-    return response.data;
+    const { data, error } = await supabase
+      .from('Guest')
+      .insert([guestData])
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
   update: async (id: string, guestData: any) => {
-    const response = await apiClient.patch(`/guest/${id}`, guestData);
-    return response.data;
+    const { data, error } = await supabase
+      .from('Guest')
+      .update(guestData)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   }
 };
 
 export const paymentApi = {
   sync: async (lastSyncedAt: number) => {
-    const response = await apiClient.get(`/billing/sync`, {
-      params: { since: lastSyncedAt }
-    });
-    return response.data;
+    const { data, error } = await supabase
+      .from('Payment')
+      .select('*')
+      .gt('updatedAt', new Date(lastSyncedAt).toISOString());
+    
+    if (error) throw error;
+    return { data, timestamp: Date.now() };
   },
   
   record: async (paymentData: any) => {
-    const response = await apiClient.post('/billing/payment', paymentData);
-    return response.data;
+    const { data, error } = await supabase
+      .from('Payment')
+      .insert([paymentData])
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
   create: async (paymentData: any) => {
-    const response = await apiClient.post('/billing/payment', paymentData);
-    return response.data;
+    const { data, error } = await supabase
+      .from('Payment')
+      .insert([paymentData])
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
   update: async (id: string, paymentData: any) => {
-    const response = await apiClient.patch(`/billing/payment/${id}`, paymentData);
-    return response.data;
+    const { data, error } = await supabase
+      .from('Payment')
+      .update(paymentData)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   }
 };
+
 export const roomTypeApi = {
   sync: async (lastSyncedAt: number) => {
-    const response = await apiClient.get(`/rooms/room-types/sync`, {
-      params: { since: lastSyncedAt }
-    });
-    return response.data;
+    const { data, error } = await supabase
+      .from('RoomType')
+      .select('*')
+      .gt('updatedAt', new Date(lastSyncedAt).toISOString());
+    
+    if (error) throw error;
+    return { data, timestamp: Date.now() };
   },
   
   create: async (roomTypeData: any) => {
     // Map baseRate to defaultPrice for backend
-    const data = {
-      ...roomTypeData,
-      defaultPrice: roomTypeData.baseRate
-    };
-    const response = await apiClient.post('/rooms/room-type', data);
-    return response.data;
+    const { baseRate, ...rest } = roomTypeData;
+    const { data, error } = await supabase
+      .from('RoomType')
+      .insert([{
+        ...rest,
+        defaultPrice: baseRate
+      }])
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   },
 
   update: async (id: string, roomTypeData: any) => {
-    const data = {
-      ...roomTypeData,
-      defaultPrice: roomTypeData.baseRate
-    };
-    const response = await apiClient.patch(`/rooms/room-type/${id}`, data);
-    return response.data;
+    const { baseRate, ...rest } = roomTypeData;
+    const { data, error } = await supabase
+      .from('RoomType')
+      .update({
+        ...rest,
+        defaultPrice: baseRate
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
   }
 };

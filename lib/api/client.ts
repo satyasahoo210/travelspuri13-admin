@@ -1,45 +1,13 @@
-import axios from 'axios';
-import { STORAGE_KEYS, API_HEADERS } from '../constants';
+import { createClient } from '../utils/supabase/client';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+/**
+ * Shared Supabase client instance for the API layer.
+ * This replaces the previous axios-based apiClient.
+ */
+export const supabase = createClient();
 
-export const apiClient = axios.create({
-  baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Interceptor to add JWT and Tenant context
-apiClient.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
-    const tenantId = localStorage.getItem(STORAGE_KEYS.TENANT_ID);
-    const propertyId = localStorage.getItem(STORAGE_KEYS.PROPERTY_ID);
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    if (tenantId) {
-      config.headers[API_HEADERS.TENANT_ID] = tenantId;
-    }
-    if (propertyId) {
-      config.headers[API_HEADERS.PROPERTY_ID] = propertyId;
-    }
-  }
-  return config;
-});
-
-// Response interceptor for error handling
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Handle unauthorized (redirect to login if not already there)
-      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
-    }
-    return Promise.reject(error);
-  }
-);
+// For backward compatibility during migration, we could keep a fake apiClient
+// but since I've already updated the main API files, I'll export supabase as the primary.
+export const apiClient = {
+  // Add shim if needed, or just let components migrate to 'supabase'
+};
