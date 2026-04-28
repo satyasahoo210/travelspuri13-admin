@@ -1,3 +1,4 @@
+import { Tables } from '@/database.types';
 import { createClient } from '../utils/supabase/client';
 
 const supabase = createClient();
@@ -36,7 +37,7 @@ export const roomApi = {
     return data;
   },
 
-  updateStatus: async (id: string, status: string) => {
+  updateStatus: async (id: string, status: Tables<'Room'>['status']) => {
     const { data, error } = await supabase
       .from('Room')
       .update({ status })

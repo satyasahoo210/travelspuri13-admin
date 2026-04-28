@@ -73,7 +73,7 @@ export class SyncManager {
         await db.transaction('rw', db[entity], async () => {
           for (const item of data) {
             const local = await (db[entity] as any).get(item.id);
-            if (!local || item.updatedAt > local.updatedAt) {
+            if (!local || (item.updatedAt && local.updatedAt && item.updatedAt > local.updatedAt)) {
               await (db[entity] as any).put(item);
             }
           }

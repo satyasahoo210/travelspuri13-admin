@@ -1,5 +1,7 @@
 'use client';
 
+import { useAuth } from '@/components/providers/auth-provider';
+import { createClient } from '@/lib/utils/supabase/client';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
 interface Property {
@@ -11,37 +13,62 @@ interface PropertyContextType {
   currentProperty: Property | null;
   properties: Property[];
   setProperty: (id: string) => void;
+  loading: boolean;
 }
 
 const PropertyContext = createContext<PropertyContextType | undefined>(undefined);
 
-const MOCK_PROPERTIES = [
-  { id: 'p1', name: 'Seaside Resort' },
-  { id: 'p2', name: 'Downtown Boutique' },
-  { id: 'p3', name: 'Mountain Lodge' },
-];
-
 export function PropertyProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const supabase = createClient();
   const [currentProperty, setCurrentProperty] = useState<Property | null>(null);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedId = localStorage.getItem('pms_property_id');
-    const property = MOCK_PROPERTIES.find(p => p.id === savedId) || MOCK_PROPERTIES[0];
-    setCurrentProperty(property);
-    localStorage.setItem('pms_property_id', property.id);
-  }, []);
+    const fetchProperties = async () => {
+      if (!user?.tenantId) {
+        setProperties([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('Property')
+        .select('id, name')
+        .eq('tenantId', user.tenantId)
+        .order('name');
+
+      if (!error && data) {
+        setProperties(data);
+        
+        // Restore selected property or default to first
+        const savedId = localStorage.getItem('pms_property_id');
+        const property = data.find(p => p.id === savedId) || data[0];
+        
+        if (property) {
+          setCurrentProperty(property);
+          localStorage.setItem('pms_property_id', property.id);
+        }
+      }
+      setLoading(false);
+    };
+
+    fetchProperties();
+  }, [user, supabase]);
 
   const setProperty = (id: string) => {
-    const property = MOCK_PROPERTIES.find(p => p.id === id);
+    const property = properties.find(p => p.id === id);
     if (property) {
       setCurrentProperty(property);
       localStorage.setItem('pms_property_id', property.id);
-      // Optional: window.location.reload() to reset all queries/sync
+      // Optional: window.location.reload() to reset all entity-specific data
     }
   };
 
   return (
-    <PropertyContext.Provider value={{ currentProperty, properties: MOCK_PROPERTIES, setProperty }}>
+    <PropertyContext.Provider value={{ currentProperty, properties, setProperty, loading }}>
       {children}
     </PropertyContext.Provider>
   );

@@ -20,6 +20,8 @@
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "framer-motion": "^12.38.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "lucide-react": "^1.8.0",
     "minimatch": "^10.2.5",
     "next": "16.2.4",
@@ -41,6 +43,7 @@
     "@types/web-push": "^3.6.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
+    "supabase": ">=1.8.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
