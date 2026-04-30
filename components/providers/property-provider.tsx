@@ -5,7 +5,7 @@ import { Tables } from '@/database.types';
 import { createClient } from '@/lib/utils/supabase/client';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-type Property = Pick<Tables<'Property'>, 'id' | 'name' | 'timezone'>
+type Property = Pick<Tables<'Property'>, 'id' | 'name' | 'timezone' | 'taxPercentage' | 'checkOutTime'>
 
 interface PropertyContextType {
   currentProperty: Property | null;
@@ -34,7 +34,7 @@ export function PropertyProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       const { data, error } = await supabase
         .from('Property')
-        .select('id, name, timezone')
+        .select('id, name, timezone, checkOutTime, taxPercentage')
         .eq('tenantId', user.tenantId)
         .order('name');
 

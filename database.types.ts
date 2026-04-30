@@ -128,6 +128,7 @@ export type Database = {
           tenantId: string
           totalAmount: number | null
           updatedAt: string | null
+          waiveLastDayCharge: boolean | null
         }
         Insert: {
           adults?: number | null
@@ -146,6 +147,7 @@ export type Database = {
           tenantId: string
           totalAmount?: number | null
           updatedAt?: string | null
+          waiveLastDayCharge?: boolean | null
         }
         Update: {
           adults?: number | null
@@ -164,6 +166,7 @@ export type Database = {
           tenantId?: string
           totalAmount?: number | null
           updatedAt?: string | null
+          waiveLastDayCharge?: boolean | null
         }
         Relationships: [
           {
@@ -766,6 +769,8 @@ export type Database = {
       Property: {
         Row: {
           address: string
+          checkInTime: string | null
+          checkOutTime: string | null
           createdAt: string | null
           email: string | null
           id: string
@@ -779,6 +784,8 @@ export type Database = {
         }
         Insert: {
           address: string
+          checkInTime?: string | null
+          checkOutTime?: string | null
           createdAt?: string | null
           email?: string | null
           id?: string
@@ -792,6 +799,8 @@ export type Database = {
         }
         Update: {
           address?: string
+          checkInTime?: string | null
+          checkOutTime?: string | null
           createdAt?: string | null
           email?: string | null
           id?: string

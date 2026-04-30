@@ -13,13 +13,14 @@ import {
 } from '@/components/ui/select'
 import { Tables } from '@/database.types'
 import { createClient } from '@/lib/utils/supabase/client'
+import { differenceInCalendarDays, differenceInDays, format } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import { Loader2, Search, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 type Guest = Pick<Tables<'Guest'>, 'id' | 'name' | 'phone'>
 type Room = Pick<Tables<'Room'>, 'id' | 'roomNumber' | 'roomTypeId'> & {
-  RoomType: Pick<Tables<'RoomType'>, 'propertyId'>
+  RoomType: Pick<Tables<'RoomType'>, 'propertyId' | 'defaultPrice'>
 }
 
 export function BookingForm({
@@ -62,6 +63,7 @@ export function BookingForm({
     children: '0',
     overrideRate: '',
     notes: '',
+    waiveLastDayCharge: false,
   })
 
   useEffect(() => {
@@ -74,7 +76,7 @@ export function BookingForm({
         .order('name')
       const { data: roomData } = await supabase
         .from('Room')
-        .select('id, roomNumber, roomTypeId, RoomType!inner(propertyId)')
+        .select('id, roomNumber, roomTypeId, RoomType!inner(propertyId, defaultPrice)')
         .eq('RoomType.propertyId', currentProperty.id)
         .eq('status', 'AVAILABLE')
 
@@ -84,6 +86,41 @@ export function BookingForm({
 
     fetchData()
   }, [currentProperty?.id])
+
+  useEffect(() => {
+    if (formData.checkIn && formData.checkOut && formData.roomId && currentProperty) {
+      const start = new Date(formData.checkIn)
+      const end = new Date(formData.checkOut)
+      
+      // 1. Base nights = calendar days difference
+      let nights = differenceInCalendarDays(end, start)
+      
+      // 2. Time-based logic
+      const checkOutTimeStr = format(end, 'HH:mm:ss')
+      const propCheckOutTime = currentProperty.checkOutTime || '07:00:00'
+      if (checkOutTimeStr > propCheckOutTime) {
+        nights += 1
+      }
+      
+      // 3. Waiver
+      if (formData.waiveLastDayCharge) {
+        nights -= 1
+      }
+
+      nights = Math.max(1, nights)
+      
+      const selectedRoom = rooms.find((r) => r.id === formData.roomId)
+      const rate = formData.overrideRate
+        ? parseFloat(formData.overrideRate)
+        : (Number(selectedRoom?.RoomType?.defaultPrice) || 0)
+      
+      const subtotal = rate * nights
+      const taxVal = subtotal * ((currentProperty.taxPercentage || 0) / 100)
+      const totalAmount = subtotal + taxVal
+      
+      setFormData(prev => ({ ...prev, amount: totalAmount.toFixed(2) }))
+    }
+  }, [formData.checkIn, formData.checkOut, formData.roomId, formData.overrideRate, formData.waiveLastDayCharge, rooms, currentProperty])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -158,6 +195,7 @@ export function BookingForm({
             children: parseInt(formData.children),
             totalAmount: parseFloat(formData.amount),
             notes: formData.notes,
+            waiveLastDayCharge: formData.waiveLastDayCharge,
             status: 'CONFIRMED',
           },
         ])
@@ -418,17 +456,26 @@ export function BookingForm({
           />
         </div>
         <div className="space-y-2">
-          <Label>Expected Amount (₹)</Label>
+          <Label>Estimated Total (₹)</Label>
           <Input
             type="number"
-            required
-            className="h-12 rounded-xl font-bold text-primary"
+            readOnly
+            className="h-12 rounded-xl font-bold text-primary bg-slate-50 border-slate-100"
             value={formData.amount}
-            onChange={(e) =>
-              setFormData({ ...formData, amount: e.target.value })
-            }
+            placeholder="Calculated automatically"
           />
         </div>
+      </div>
+
+      <div className="flex items-center space-x-2 py-2">
+        <input 
+          type="checkbox" 
+          id="waiveLastDayCharge"
+          checked={formData.waiveLastDayCharge}
+          onChange={(e) => setFormData({ ...formData, waiveLastDayCharge: e.target.checked })}
+          className="w-5 h-5 accent-primary cursor-pointer"
+        />
+        <Label htmlFor="waiveLastDayCharge" className="cursor-pointer">Waive Last Day Charge</Label>
       </div>
 
       <div className="space-y-2">

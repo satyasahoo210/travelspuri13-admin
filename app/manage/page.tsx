@@ -3,6 +3,12 @@
 import { useAuth } from '@/components/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SearchableCombobox } from '@/components/ui/searchable-combobox'
@@ -15,6 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Tables } from '@/database.types'
 import { createClient } from '@/lib/utils/supabase/client'
+import { differenceInCalendarDays, differenceInDays, format } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -28,9 +35,11 @@ import {
   LayoutDashboard,
   Loader2,
   Menu,
+  Pencil,
   Plus,
   Search,
   Store,
+  Trash2,
   UserCircle,
   UserPlus,
   Users,
@@ -38,7 +47,9 @@ import {
   X,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+
+const PAGE_SIZE = 10
 
 type EntityType =
   | 'Property'
@@ -53,13 +64,18 @@ type EntityType =
   | 'Product'
 type Nullable<T> = T | null
 type DropDownType = {
-  properties: Nullable<Pick<Tables<'Property'>, 'id' | 'name' | 'timezone'>[]>
+  properties: Nullable<
+    Pick<
+      Tables<'Property'>,
+      'id' | 'name' | 'timezone' | 'taxPercentage' | 'checkOutTime'
+    >[]
+  >
   roomTypes: Nullable<Pick<Tables<'RoomType'>, 'id' | 'name' | 'propertyId'>[]>
   guests: Nullable<Pick<Tables<'Guest'>, 'id' | 'name'>[]>
   products: Nullable<Pick<Tables<'Product'>, 'id' | 'name'>[]>
   rooms: Nullable<
     (Pick<Tables<'Room'>, 'id' | 'roomNumber'> & {
-      RoomType: Pick<Tables<'RoomType'>, 'propertyId'>
+      RoomType: Pick<Tables<'RoomType'>, 'propertyId' | 'defaultPrice'>
     })[]
   >
   bookings: Nullable<
@@ -78,6 +94,14 @@ export default function ManagePage() {
   const [error, setError] = useState<string | null>(null)
   const [dropdowns, setDropdowns] = useState<DropDownType>({} as DropDownType)
 
+  // Entity List State
+  const [entities, setEntities] = useState<any[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [currentPage, setCurrentPage] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingItem, setEditingItem] = useState<any>(null)
+
   // State for filtering & guest logic
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
     null,
@@ -85,8 +109,28 @@ export default function ManagePage() {
   const [selectedRoomTypeId, setSelectedRoomTypeId] = useState<string>('')
   const [selectedRoomId, setSelectedRoomId] = useState<string>('')
   const [selectedGuestId, setSelectedGuestId] = useState<string>('')
-  const [selectedBookingId, setSelectedBookingId] = useState<string>('')
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(
+    null,
+  )
   const [isQuickAddGuest, setIsQuickAddGuest] = useState(false)
+
+  // Sync selection states with editingItem
+  useEffect(() => {
+    if (editingItem) {
+      if (editingItem.propertyId) setSelectedPropertyId(editingItem.propertyId)
+      if (editingItem.roomTypeId) setSelectedRoomTypeId(editingItem.roomTypeId)
+      if (editingItem.roomId) setSelectedRoomId(editingItem.roomId)
+      if (editingItem.guestId) setSelectedGuestId(editingItem.guestId)
+      if (editingItem.bookingId) setSelectedBookingId(editingItem.bookingId)
+    } else {
+      setSelectedPropertyId(null)
+      setSelectedRoomTypeId('')
+      setSelectedRoomId('')
+      setSelectedGuestId('')
+      setSelectedBookingId('')
+      setIsQuickAddGuest(false)
+    }
+  }, [editingItem])
 
   // Verify access (SUPER_ADMIN or TENANT_ADMIN)
   useEffect(() => {
@@ -98,7 +142,7 @@ export default function ManagePage() {
   const fetchDropdowns = async () => {
     const { data: properties } = await supabase
       .from('Property')
-      .select('id, name, timezone')
+      .select('id, name, timezone, taxPercentage, checkOutTime')
     const { data: roomTypes } = await supabase
       .from('RoomType')
       .select('id, name, propertyId')
@@ -114,16 +158,73 @@ export default function ManagePage() {
     // Fetch rooms with propertyId from RoomType join
     const { data: rooms } = await supabase
       .from('Room')
-      .select('id, roomNumber, RoomType!inner(propertyId)')
+      .select('id, roomNumber, RoomType!inner(propertyId, defaultPrice)')
 
     setDropdowns({ properties, roomTypes, guests, products, rooms, bookings })
   }
 
   // Fetch dropdown data on mount
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (user) fetchDropdowns()
+    if (user) {
+      fetchDropdowns()
+    }
   }, [user])
+
+  const fetchEntities = async () => {
+    if (!user) return
+    setLoading(true)
+
+    try {
+      let query = supabase
+        .from(activeEntity as any)
+        .select('*', { count: 'exact' })
+
+      // Handle search
+      if (searchQuery) {
+        const searchFields: Record<string, string[]> = {
+          Property: ['name', 'address'],
+          RoomType: ['name'],
+          Room: ['roomNumber'],
+          Booking: [], // Need complex join search
+          Employee: ['name', 'email'],
+          Guest: ['name', 'phone', 'email'],
+          Service: ['name'],
+          Product: ['name', 'category'],
+          Order: ['tableNumber'],
+        }
+
+        const fields = searchFields[activeEntity] || []
+        if (fields.length > 0) {
+          const filter = fields
+            .map((f) => `${f}.ilike.%${searchQuery}%`)
+            .join(',')
+          query = query.or(filter)
+        }
+      }
+
+      // Handle Joins for better display
+      if (activeEntity === 'Room') query = query.select('*, RoomType(name)')
+      if (activeEntity === 'Booking') query = query.select('*, Guest(name)')
+      if (activeEntity === 'Order') query = query.select('*, Guest(name)')
+      if (activeEntity === 'RoomType') query = query.select('*, Property(name)')
+
+      const { data, count, error } = await query
+        .order('createdAt', { ascending: false })
+        .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
+
+      if (error) throw error
+      setEntities(data || [])
+      setTotalCount(count || 0)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchEntities()
+  }, [activeEntity, currentPage, searchQuery])
 
   const sidebarItems = [
     { id: 'Property', icon: Building2, label: 'Properties' },
@@ -175,9 +276,13 @@ export default function ManagePage() {
           throw new Error(errData.message || 'Failed to create employee')
         }
 
-        setSuccess(`New Employee created successfully!`)
+        setSuccess(
+          `Employee ${editingItem ? 'updated' : 'created'} successfully!`,
+        )
+        setIsDialogOpen(false)
+        setEditingItem(null)
         ;(e.target as HTMLFormElement).reset()
-        fetchDropdowns()
+        fetchEntities()
         return
       }
 
@@ -283,11 +388,55 @@ export default function ManagePage() {
           ? { tenantId: user?.tenantId }
           : {}),
         ...(activeEntity === 'Booking'
-          ? {
-              guestId: finalGuestId,
-              checkInDate: checkInDateStr,
-              checkOutDate: checkOutDateStr,
-            }
+          ? (() => {
+              const start = new Date(checkInDateStr)
+              const end = new Date(checkOutDateStr)
+
+              const propertyInfo = dropdowns.properties?.find(
+                (p) => p.id === data.propertyId,
+              )
+
+              // 1. Base nights = calendar days
+              let nights = differenceInCalendarDays(end, start)
+
+              // 2. Time-based logic
+              const checkOutTimeStr = format(end, 'HH:mm:ss')
+              const propCheckOutTime = propertyInfo?.checkOutTime || '07:00:00'
+              if (checkOutTimeStr > propCheckOutTime) {
+                nights += 1
+              }
+
+              // 3. Waiver
+              if (
+                data.waiveLastDayCharge === 'on' ||
+                data.waiveLastDayCharge === 'true'
+              ) {
+                nights -= 1
+              }
+
+              nights = Math.max(1, nights)
+
+              const selectedRoom = dropdowns.rooms?.find(
+                (r) => r.id === (data.roomId as string),
+              )
+              const rate = data.overrideRate
+                ? parseFloat(data.overrideRate as string)
+                : Number(selectedRoom?.RoomType?.defaultPrice) || 0
+
+              const subtotal = rate * nights
+              const taxVal =
+                subtotal * ((propertyInfo?.taxPercentage || 0) / 100)
+              const totalAmount = subtotal + taxVal
+
+              return {
+                guestId: finalGuestId,
+                checkInDate: checkInDateStr,
+                checkOutDate: checkOutDateStr,
+                totalAmount: totalAmount,
+                adults: parseInt(data.adults as string) || 1,
+                children: parseInt(data.children as string) || 0,
+              }
+            })()
           : {}),
         // Convert numbers if needed
         ...(data.price ? { price: parseFloat(data.price as string) } : {}),
@@ -311,12 +460,23 @@ export default function ManagePage() {
           : {}),
       }
 
-      const { data: dbData, error: dbError } = await supabase
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .from(activeEntity as any)
-        .insert([payload])
-        .select()
-        .single()
+      let dbResult
+      if (editingItem) {
+        dbResult = await supabase
+          .from(activeEntity as any)
+          .update(payload)
+          .eq('id', editingItem.id)
+          .select()
+          .single()
+      } else {
+        dbResult = await supabase
+          .from(activeEntity as any)
+          .insert([payload])
+          .select()
+          .single()
+      }
+
+      const { data: dbData, error: dbError } = dbResult
 
       if (dbError) throw dbError
 
@@ -345,18 +505,210 @@ export default function ManagePage() {
         }
       }
 
-      setSuccess(`New ${activeEntity} created successfully!`)
-      fetchDropdowns() // Refresh dropdown data
+      setSuccess(
+        `${activeEntity} ${editingItem ? 'updated' : 'created'} successfully!`,
+      )
+      setIsDialogOpen(false)
+      setEditingItem(null)
+      fetchEntities()
+      fetchDropdowns()
       ;(e.target as HTMLFormElement).reset()
       setSelectedPropertyId(null)
       setIsQuickAddGuest(false)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error(err)
-      setError(err.message || `Failed to create ${activeEntity}`)
+      setError(err.message || `Failed to save ${activeEntity}`)
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this?')) return
+    setLoading(true)
+    try {
+      const { error } = await supabase
+        .from(activeEntity as any)
+        .delete()
+        .eq('id', id)
+      if (error) throw error
+      setSuccess(`${activeEntity} deleted successfully!`)
+      fetchEntities()
+      fetchDropdowns()
+    } catch (err: any) {
+      setError(err.message || `Failed to delete ${activeEntity}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const renderEntityList = () => {
+    const configs: Record<string, string[]> = {
+      Property: ['name', 'address', 'timezone'],
+      RoomType: ['name', 'capacity', 'defaultPrice'],
+      Room: ['roomNumber', 'status'],
+      Booking: ['Guest.name', 'checkInDate', 'checkOutDate', 'status'],
+      Employee: ['name', 'email', 'role'],
+      Guest: ['name', 'phone', 'email'],
+      Service: ['name', 'price'],
+      Product: ['name', 'category', 'price'],
+      Order: ['tableNumber', 'totalAmount', 'status'],
+    }
+
+    const columns = configs[activeEntity] || []
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="relative w-full md:w-96">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder={`Search ${activeEntity}...`}
+              className="pl-12 h-14 rounded-2xl text-sm border-slate-100 bg-white shadow-sm transition-all focus:ring-2 focus:ring-primary/20"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value)
+                setCurrentPage(0)
+              }}
+            />
+          </div>
+          <Button
+            onClick={() => {
+              setEditingItem(null)
+              setIsDialogOpen(true)
+            }}
+            className="w-full md:w-auto rounded-2xl font-black text-xs tracking-widest uppercase h-14 px-8 shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all"
+          >
+            <Plus className="w-5 h-5 mr-2" /> ADD {activeEntity}
+          </Button>
+        </div>
+
+        <div className="bg-white rounded-[2.5rem] border border-slate-100 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50/50 border-b border-slate-100">
+                  {columns.map((col) => (
+                    <th
+                      key={col}
+                      className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400"
+                    >
+                      {col.split('.').pop()}
+                    </th>
+                  ))}
+                  <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {loading && entities.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={columns.length + 1}
+                      className="px-8 py-12 text-center"
+                    >
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary/20" />
+                    </td>
+                  </tr>
+                ) : entities.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={columns.length + 1}
+                      className="px-8 py-12 text-center text-slate-400 font-bold uppercase tracking-widest text-xs"
+                    >
+                      No {activeEntity}s found
+                    </td>
+                  </tr>
+                ) : (
+                  entities.map((item) => (
+                    <tr
+                      key={item.id}
+                      className="hover:bg-slate-50/50 transition-colors group"
+                    >
+                      {columns.map((col) => {
+                        const value = col.includes('.')
+                          ? col
+                              .split('.')
+                              .reduce((obj, key) => obj?.[key], item)
+                          : item[col]
+                        return (
+                          <td
+                            key={col}
+                            className="px-8 py-5 text-sm font-bold text-slate-700"
+                          >
+                            {col.toLowerCase().includes('date')
+                              ? value
+                                ? new Date(value).toLocaleDateString()
+                                : '-'
+                              : String(value || '-')}
+                          </td>
+                        )
+                      })}
+                      <td className="px-8 py-5 text-right">
+                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 rounded-xl text-slate-400 hover:text-primary hover:bg-primary/5"
+                            onClick={() => {
+                              setEditingItem(item)
+                              setIsDialogOpen(true)
+                            }}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50"
+                            onClick={() => handleDelete(item.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Pagination */}
+        {totalCount > PAGE_SIZE && (
+          <div className="flex items-center justify-between px-4">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              Showing {currentPage * PAGE_SIZE + 1} -{' '}
+              {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} of{' '}
+              {totalCount} {activeEntity}s
+            </p>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage === 0}
+                onClick={() => setCurrentPage((prev) => prev - 1)}
+                className="rounded-xl h-10 px-4 font-bold border-slate-100 hover:bg-slate-50"
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={(currentPage + 1) * PAGE_SIZE >= totalCount}
+                onClick={() => setCurrentPage((prev) => prev + 1)}
+                className="rounded-xl h-10 px-4 font-bold border-slate-100 hover:bg-slate-50"
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
   }
 
   const renderFormFields = () => {
@@ -366,15 +718,30 @@ export default function ManagePage() {
           <>
             <div className="space-y-2">
               <Label>Property Name</Label>
-              <Input name="name" required placeholder="Luxury Suites" />
+              <Input
+                name="name"
+                required
+                placeholder="Luxury Suites"
+                defaultValue={editingItem?.name || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Address</Label>
-              <Input name="address" required placeholder="123 Ocean Drive" />
+              <Input
+                name="address"
+                required
+                placeholder="123 Beach Road, Puri"
+                defaultValue={editingItem?.address || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Timezone</Label>
-              <Input name="timezone" required placeholder="Asia/Kolkata" />
+              <Input
+                name="timezone"
+                required
+                placeholder="Asia/Kolkata"
+                defaultValue={editingItem?.timezone || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Tax Percentage (%)</Label>
@@ -382,8 +749,26 @@ export default function ManagePage() {
                 name="taxPercentage"
                 type="number"
                 step="0.01"
-                defaultValue="0"
+                defaultValue={editingItem?.taxPercentage || '0'}
               />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Default Check-in Time</Label>
+                <Input
+                  name="checkInTime"
+                  type="time"
+                  defaultValue={editingItem?.checkInTime || '08:00'}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Default Check-out Time</Label>
+                <Input
+                  name="checkOutTime"
+                  type="time"
+                  defaultValue={editingItem?.checkOutTime || '07:00'}
+                />
+              </div>
             </div>
             <div className="space-y-2 col-span-full">
               <Label>Property Logo (Optional)</Label>
@@ -401,27 +786,46 @@ export default function ManagePage() {
           <>
             <div className="space-y-2">
               <Label>Name</Label>
-              <Input name="name" required placeholder="Deluxe Ocean View" />
+              <Input
+                name="name"
+                required
+                placeholder="Deluxe Room"
+                defaultValue={editingItem?.name || ''}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input
+                name="description"
+                placeholder="King size bed with sea view"
+                defaultValue={editingItem?.description || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Capacity</Label>
-              <Input name="capacity" type="number" required placeholder="2" />
+              <Input
+                name="capacity"
+                type="number"
+                required
+                placeholder="2"
+                defaultValue={editingItem?.capacity || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Default Price</Label>
               <Input
                 name="defaultPrice"
                 type="number"
-                step="0.01"
                 required
-                placeholder="5000"
+                placeholder="2500"
+                defaultValue={editingItem?.defaultPrice || ''}
               />
             </div>
             <div className="space-y-2">
               <Label>Property</Label>
               <SearchableCombobox
                 name="propertyId"
-                value={selectedPropertyId || ''}
+                value={selectedPropertyId || editingItem?.propertyId || ''}
                 onChange={(v) => setSelectedPropertyId(v)}
                 options={
                   dropdowns.properties?.map((p) => ({
@@ -439,13 +843,18 @@ export default function ManagePage() {
           <>
             <div className="space-y-2">
               <Label>Room Number</Label>
-              <Input name="roomNumber" required placeholder="101" />
+              <Input
+                name="roomNumber"
+                required
+                placeholder="101"
+                defaultValue={editingItem?.roomNumber || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Room Type</Label>
               <SearchableCombobox
                 name="roomTypeId"
-                value={selectedRoomTypeId}
+                value={selectedRoomTypeId || editingItem?.roomTypeId || ''}
                 onChange={setSelectedRoomTypeId}
                 options={
                   dropdowns.roomTypes?.map((rt) => ({
@@ -458,7 +867,10 @@ export default function ManagePage() {
             </div>
             <div className="space-y-2">
               <Label>Status</Label>
-              <Select name="status" defaultValue="AVAILABLE">
+              <Select
+                name="status"
+                defaultValue={editingItem?.status || 'AVAILABLE'}
+              >
                 <SelectTrigger className="bg-slate-50 border-slate-200">
                   <SelectValue />
                 </SelectTrigger>
@@ -563,7 +975,7 @@ export default function ManagePage() {
                 <Label>Select Guest</Label>
                 <SearchableCombobox
                   name="guestId"
-                  value={selectedGuestId}
+                  value={selectedGuestId || editingItem?.guestId || ''}
                   onChange={setSelectedGuestId}
                   options={
                     dropdowns.guests?.map((g) => ({
@@ -580,7 +992,7 @@ export default function ManagePage() {
               <Label>Property</Label>
               <SearchableCombobox
                 name="propertyId"
-                value={selectedPropertyId || ''}
+                value={selectedPropertyId || editingItem?.propertyId || ''}
                 onChange={setSelectedPropertyId}
                 options={
                   dropdowns.properties?.map((p) => ({
@@ -595,7 +1007,7 @@ export default function ManagePage() {
               <Label>Assigned Room</Label>
               <SearchableCombobox
                 name="roomId"
-                value={selectedRoomId}
+                value={selectedRoomId || editingItem?.roomId || ''}
                 onChange={setSelectedRoomId}
                 disabled={!selectedPropertyId}
                 options={
@@ -612,7 +1024,51 @@ export default function ManagePage() {
             </div>
             <div className="space-y-2">
               <Label>Check-In Date</Label>
-              <Input name="checkInDate" type="datetime-local" required />
+              <Input
+                name="checkInDate"
+                type="datetime-local"
+                required
+                defaultValue={editingItem?.checkInDate?.split('T')[0] || ''}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Check-Out Date</Label>
+              <Input
+                name="checkOutDate"
+                type="datetime-local"
+                required
+                defaultValue={editingItem?.checkOutDate?.split('T')[0] || ''}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Adults</Label>
+              <Input
+                name="adults"
+                type="number"
+                required
+                defaultValue={editingItem?.adults || '1'}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Children</Label>
+              <Input
+                name="children"
+                type="number"
+                required
+                defaultValue={editingItem?.children || '0'}
+              />
+            </div>
+            <div className="flex items-center space-x-2 pt-8">
+              <input
+                type="checkbox"
+                name="waiveLastDayCharge"
+                id="waiveLastDayCharge"
+                defaultChecked={editingItem?.waiveLastDayCharge || false}
+                className="w-5 h-5 accent-primary"
+              />
+              <Label htmlFor="waiveLastDayCharge" className="cursor-pointer">
+                Waive Last Day Charge
+              </Label>
             </div>
             <div className="space-y-2">
               <Label>Override Rate (Per Night)</Label>
@@ -621,6 +1077,7 @@ export default function ManagePage() {
                 type="number"
                 step="0.01"
                 placeholder="Override default room price (Optional)"
+                defaultValue={editingItem?.overrideRate || ''}
               />
             </div>
             <div className="space-y-2 col-span-full">
@@ -628,6 +1085,7 @@ export default function ManagePage() {
               <Input
                 name="notes"
                 placeholder="Special requests, instructions, etc."
+                defaultValue={editingItem?.notes || ''}
               />
             </div>
           </>
@@ -637,7 +1095,12 @@ export default function ManagePage() {
           <>
             <div className="space-y-2">
               <Label>Full Name</Label>
-              <Input name="name" required placeholder="Alex Johnson" />
+              <Input
+                name="name"
+                required
+                placeholder="Alex Johnson"
+                defaultValue={editingItem?.name || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Email Address</Label>
@@ -646,6 +1109,7 @@ export default function ManagePage() {
                 type="email"
                 required
                 placeholder="alex@hotel.com"
+                defaultValue={editingItem?.email || ''}
               />
             </div>
             <div className="space-y-2">
@@ -653,14 +1117,18 @@ export default function ManagePage() {
               <Input
                 name="password"
                 type="password"
-                required
+                required={!editingItem}
                 minLength={6}
-                placeholder="Min 6 characters"
+                placeholder={
+                  editingItem
+                    ? 'Leave blank to keep current'
+                    : 'Min 6 characters'
+                }
               />
             </div>
             <div className="space-y-2">
               <Label>System Role</Label>
-              <Select name="role" defaultValue="STAFF">
+              <Select name="role" defaultValue={editingItem?.role || 'STAFF'}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
@@ -679,11 +1147,21 @@ export default function ManagePage() {
           <>
             <div className="space-y-2">
               <Label>Name</Label>
-              <Input name="name" required placeholder="Guest Name" />
+              <Input
+                name="name"
+                required
+                placeholder="Guest Name"
+                defaultValue={editingItem?.name || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Phone</Label>
-              <Input name="phone" placeholder="+1234567890" />
+              <Input
+                name="phone"
+                required
+                placeholder="+91 98765 43210"
+                defaultValue={editingItem?.phone || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
@@ -691,11 +1169,16 @@ export default function ManagePage() {
                 name="email"
                 type="email"
                 placeholder="guest@example.com"
+                defaultValue={editingItem?.email || ''}
               />
             </div>
             <div className="space-y-2 col-span-full">
               <Label>Address</Label>
-              <Input name="address" placeholder="Full Address" />
+              <Input
+                name="address"
+                placeholder="Full Address"
+                defaultValue={editingItem?.address || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>ID Proof Type</Label>
@@ -748,11 +1231,22 @@ export default function ManagePage() {
             </div>
             <div className="space-y-2">
               <Label>Service Name</Label>
-              <Input name="name" required placeholder="Laundry" />
+              <Input
+                name="name"
+                required
+                placeholder="Laundry"
+                defaultValue={editingItem?.name || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Price</Label>
-              <Input name="price" type="number" step="0.01" required />
+              <Input
+                name="price"
+                type="number"
+                step="0.01"
+                required
+                defaultValue={editingItem?.price || ''}
+              />
             </div>
           </>
         )
@@ -776,11 +1270,21 @@ export default function ManagePage() {
             </div>
             <div className="space-y-2">
               <Label>Date</Label>
-              <Input name="date" type="date" required />
+              <Input
+                name="date"
+                type="date"
+                required
+                defaultValue={editingItem?.date || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Total Rooms</Label>
-              <Input name="totalRooms" type="number" required />
+              <Input
+                name="totalRooms"
+                type="number"
+                required
+                defaultValue={editingItem?.totalRooms || ''}
+              />
             </div>
           </>
         )
@@ -803,16 +1307,31 @@ export default function ManagePage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Name</Label>
-              <Input name="name" required placeholder="Coca Cola" />
-            </div>
-            <div className="space-y-2">
-              <Label>Category</Label>
-              <Input name="category" required placeholder="Beverage" />
+              <Label>Product Name</Label>
+              <Input
+                name="name"
+                required
+                placeholder="Bottled Water"
+                defaultValue={editingItem?.name || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Price</Label>
-              <Input name="price" type="number" step="0.01" required />
+              <Input
+                name="price"
+                type="number"
+                step="0.01"
+                required
+                defaultValue={editingItem?.price || ''}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Input
+                name="category"
+                placeholder="Beverage"
+                defaultValue={editingItem?.category || ''}
+              />
             </div>
           </>
         )
@@ -838,7 +1357,7 @@ export default function ManagePage() {
               <Label>Booking (Optional)</Label>
               <SearchableCombobox
                 name="bookingId"
-                value={selectedBookingId}
+                value={selectedBookingId ?? undefined}
                 onChange={setSelectedBookingId}
                 options={
                   dropdowns.bookings?.map((b) => ({
@@ -851,15 +1370,26 @@ export default function ManagePage() {
             </div>
             <div className="space-y-2">
               <Label>Table Number</Label>
-              <Input name="tableNumber" placeholder="Table 5" />
+              <Input
+                name="tableNumber"
+                placeholder="T-10"
+                defaultValue={editingItem?.tableNumber || ''}
+              />
             </div>
-            <div className="space-y-2">
-              <Label>Total Amount</Label>
-              <Input name="totalAmount" type="number" step="0.01" required />
+            <div className="space-y-2 col-span-full">
+              <Label>Notes</Label>
+              <Input
+                name="notes"
+                placeholder="Cooking instructions..."
+                defaultValue={editingItem?.notes || ''}
+              />
             </div>
             <div className="space-y-2">
               <Label>Status</Label>
-              <Select name="status" defaultValue="PENDING">
+              <Select
+                name="status"
+                defaultValue={editingItem?.status || 'PENDING'}
+              >
                 <SelectTrigger className="bg-slate-50 border-slate-200">
                   <SelectValue />
                 </SelectTrigger>
@@ -941,17 +1471,19 @@ export default function ManagePage() {
       </motion.aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-12 relative selection:bg-primary/10">
-        <div className="max-w-4xl mx-auto py-12">
-          <div className="mb-12">
-            <h1 className="text-6xl font-heading font-black tracking-tighter mb-4 text-slate-900 leading-none">
-              Add {activeEntity}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <header className="p-10 pb-0 flex justify-between items-start">
+          <div>
+            <h1 className="text-5xl font-black text-slate-900 tracking-tighter mb-2">
+              {activeEntity}s
             </h1>
-            <p className="text-slate-500 text-lg font-bold">
-              Central registry for initializing new {activeEntity} assets.
+            <p className="text-slate-400 font-bold uppercase tracking-[0.3em] text-[10px]">
+              {totalCount} Records Available • Administrative Control
             </p>
           </div>
+        </header>
 
+        <div className="flex-1 overflow-y-auto p-10 pt-8 scrollbar-none">
           {/* Notifications */}
           <AnimatePresence>
             {success && (
@@ -978,37 +1510,61 @@ export default function ManagePage() {
             )}
           </AnimatePresence>
 
-          <Card className="bg-white border-slate-200 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-slate-200/50 relative z-10">
-            <CardContent className="p-10 md:p-14">
-              <form
-                onSubmit={handleFormSubmit}
-                className="space-y-8"
-                key={activeEntity}
-              >
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeEntity}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3, ease: 'circOut' }}
+            >
+              {renderEntityList()}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Dialog for Add/Edit Form */}
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto p-0 rounded-[3rem] border-none shadow-2xl">
+            <div className="p-10 md:p-14">
+              <DialogHeader className="mb-10">
+                <DialogTitle className="text-4xl font-black text-slate-900 tracking-tighter">
+                  {editingItem ? 'Edit' : 'Register'} {activeEntity}
+                </DialogTitle>
+              </DialogHeader>
+
+              <form onSubmit={handleFormSubmit} className="space-y-10">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
                   {renderFormFields()}
                 </div>
 
-                <div className="pt-10 border-t border-slate-100">
+                <div className="flex justify-end gap-4 pt-10 border-t border-slate-100">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setIsDialogOpen(false)}
+                    className="rounded-2xl h-16 px-10 font-black text-xs tracking-widest uppercase text-slate-400"
+                  >
+                    Discard
+                  </Button>
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="w-full h-20 rounded-3xl text-2xl font-heading font-black tracking-tighter shadow-2xl shadow-primary/30 hover:scale-[1.01] transition-all"
+                    className="rounded-3xl h-16 px-14 font-black text-xs tracking-widest uppercase shadow-2xl shadow-primary/30"
                   >
                     {loading ? (
-                      <Loader2 className="w-8 h-8 animate-spin" />
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    ) : editingItem ? (
+                      'Update Record'
                     ) : (
-                      <>
-                        <Plus className="w-8 h-8 mr-4" /> REGISTER{' '}
-                        {activeEntity.toUpperCase()}
-                      </>
+                      `Confirm Registration`
                     )}
                   </Button>
                 </div>
               </form>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </main>
 
       <style jsx global>{`

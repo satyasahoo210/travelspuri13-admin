@@ -91,12 +91,44 @@ function amountToWords(amount: number): string {
   return str.trim() + ' Rupees Only'
 }
 
-export const generateInvoicePDF = (
+const imageToBase64 = async (url: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'Anonymous'
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject('Could not get canvas context')
+        return
+      }
+      ctx.drawImage(img, 0, 0)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = (e) => reject(e)
+    img.src = url
+  })
+}
+
+export const generateInvoicePDF = async (
   folio: Booking,
   assignments: BookingRoom[],
   services: BookingService[],
   property: Property,
   payments: Payment[] = [],
+  totals: {
+    nights: number
+    roomTotal: number
+    serviceTotal: number
+    subtotal: number
+    discount: number
+    tax: number
+    total: number
+    totalPaid: number
+    balance: number
+  },
 ) => {
   const doc = new jsPDF()
   const margin = 15
@@ -105,27 +137,35 @@ export const generateInvoicePDF = (
   let currentY = 20
 
   // --- 1. Header Block ---
-  // Property Logos (Placeholder if URL not available)
   try {
-    // Left: Our Logo
-    doc.setDrawColor(240, 240, 240)
-    doc.setFillColor(245, 245, 245)
-    doc.rect(margin, currentY, 40, 25, 'F')
-    doc.setFontSize(8)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(150, 150, 150)
-    doc.text('ANTIGRAVITY', margin + 8, currentY + 12)
-    doc.text('PMS', margin + 17, currentY + 16)
+    // Left: Our Logo (public/logo.svg)
+    const ourLogoBase64 = await imageToBase64('/logo.svg')
+    doc.addImage(ourLogoBase64, 'PNG', margin, currentY, 30, 30)
 
     // Right: Property Logo (if available)
     if (property.logoUrl) {
-      // Note: In a real browser environment, we'd use doc.addImage
-      // For now, we'll placeholder it as a box with text
-      doc.rect(pageWidth - margin - 40, currentY, 40, 25, 'F')
-      doc.text('LOGO', pageWidth - margin - 25, currentY + 14)
+      try {
+        const propLogoBase64 = await imageToBase64(property.logoUrl)
+        doc.addImage(
+          propLogoBase64,
+          'PNG',
+          pageWidth - margin - 30,
+          currentY,
+          30,
+          30,
+        )
+      } catch (e) {
+        console.error('Property logo load error', e)
+        // Fallback or just skip
+      }
     }
   } catch (e) {
     console.error('Logo error', e)
+    // Fallback to text if logos fail
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(30, 41, 59)
+    doc.text('TRAVELS PURI 13', margin, currentY + 10)
   }
 
   currentY += 35
@@ -265,20 +305,10 @@ export const generateInvoicePDF = (
   currentY = (doc as any).lastAutoTable.finalY + 12
   doc.setFont('helvetica', 'bold')
   doc.text('CHARGES & SERVICES', margin, currentY)
-  currentY += 4
-
-  const totalNights = Math.max(
-    1,
-    differenceInDays(new Date(folio.checkOutDate), new Date(folio.checkInDate)),
-  )
+  const totalNights = totals.nights
   const chargesData: Array<string[]> = []
 
-  const roomSubtotal = assignments.reduce(
-    (sum, a) =>
-      sum + (Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0),
-    0,
-  )
-  const totalRoomCharges = roomSubtotal * totalNights
+  const totalRoomCharges = totals.roomTotal
 
   chargesData.push([
     `Accommodation (${totalNights} Night(s) x ${assignments.length} Room(s))`,
@@ -311,23 +341,12 @@ export const generateInvoicePDF = (
   currentY = (doc as any).lastAutoTable.finalY + 10
 
   // --- 4.3 Totals Section ---
-  const serviceSubtotal = services.reduce(
-    (sum, s) => sum + Number(s.totalPrice),
-    0,
-  )
-  const subtotal = totalRoomCharges + serviceSubtotal
-
-  const discount =
-    folio.discountType === 'PERCENTAGE'
-      ? subtotal * (Number(folio.discountAmount) / 100)
-      : Number(folio.discountAmount || 0)
-
-  const taxRate = (property.taxPercentage || 0) / 100
-  const tax = (subtotal - discount) * taxRate
-  const payableAmount = subtotal - discount + tax
-
-  const paidAmount = payments.reduce((sum, p) => sum + Number(p.amount), 0)
-  const dueAmount = payableAmount - paidAmount
+  const subtotal = totals.subtotal
+  const discount = totals.discount
+  const tax = totals.tax
+  const payableAmount = totals.total
+  const paidAmount = totals.totalPaid
+  const dueAmount = totals.balance
 
   // Words and Summary Grid
   doc.setFillColor(248, 250, 252)

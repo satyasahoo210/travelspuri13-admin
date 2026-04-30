@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { generateInvoicePDF } from '@/lib/finance/invoice-pdf'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/utils/supabase/client'
-import { format } from 'date-fns'
+import { differenceInCalendarDays, format } from 'date-fns'
 import {
   BedDouble,
   Calendar,
@@ -143,28 +143,40 @@ export function BookingDetails({
     }
   }
 
+  const handleToggleWaiver = async () => {
+    if (!folio || !leadBooking) return
+    const newWaiver = !folio.waiveLastDayCharge
+    setFolio(prev => prev ? ({ ...prev, waiveLastDayCharge: newWaiver }) : null)
+
+    const { error } = await supabase
+      .from('Booking')
+      .update({ waiveLastDayCharge: newWaiver })
+      .eq('id', leadBooking.id)
+
+    if (error) {
+      console.error('Error updating waiver:', error)
+      setFolio(prev => prev ? ({ ...prev, waiveLastDayCharge: !newWaiver }) : null)
+    }
+  }
+
   const handleGenerateInvoice = async () => {
     if (!folio || !property) return
-    generateInvoicePDF(folio, assignments, services, property, payments)
-
-    const roomSubtotal = assignments.reduce(
-      (sum, a) =>
-        sum +
-        (Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0),
-      0,
-    )
-    const serviceSubtotal = services.reduce(
-      (sum, s) => sum + Number(s.totalPrice),
-      0,
-    )
-    const subtotal = roomSubtotal + serviceSubtotal
-    const discount =
-      folio.discountType === 'PERCENTAGE'
-        ? subtotal * (Number(folio.discountAmount) / 100)
-        : Number(folio.discountAmount || 0)
-    const taxAmount =
-      (subtotal - discount) * (property.taxPercentage ?? 0 / 100)
-    const finalTotal = subtotal - discount + taxAmount
+    const { 
+      total: finalTotal, 
+      tax: taxAmount,
+    } = calculateCurrentTotal()
+    
+    await generateInvoicePDF(folio, assignments, services, property, payments, {
+      nights: totalNights,
+      roomTotal: totalRoomCharges,
+      serviceTotal: serviceSubtotal,
+      subtotal: bookingSubtotal ?? 0,
+      discount,
+      tax: taxAmount,
+      total,
+      totalPaid,
+      balance: totalDue,
+    })
 
     await supabase.from('Billing').upsert({
       bookingId: folio.id,
@@ -182,43 +194,89 @@ export function BookingDetails({
     if (open && leadBooking?.id) fetchFolioData()
   }, [open, leadBooking?.id])
 
-  useEffect(() => {
-    const roomSubtotal = assignments.reduce(
-      (sum, a) =>
-        sum +
-        (Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0),
-      0,
-    )
-    const serviceSubtotal = services.reduce(
-      (sum, s) => sum + Number(s.totalPrice),
-      0,
-    )
-    const discount =
-      folio?.discountType === 'PERCENTAGE'
-        ? (roomSubtotal + serviceSubtotal) *
-          (Number(folio?.discountAmount) / 100)
-        : Number(folio?.discountAmount || 0)
+  const calculateCurrentTotal = (
+    f = folio,
+    a = assignments,
+    s = services,
+    p = property,
+  ) => {
+    if (!f || !p) return { total: 0, nights: 1, roomTotal: 0, serviceTotal: 0, discount: 0, tax: 0 }
+    
+    const checkInDate = new Date(f.checkInDate)
+    const checkOutDate = new Date(f.checkOutDate)
+    
+    // 1. Base nights = calendar days difference
+    let nights = differenceInCalendarDays(checkOutDate, checkInDate)
+    
+    // 2. If checkout time is after property's checkout time, add 1 night
+    const checkOutTimeStr = format(checkOutDate, 'HH:mm:ss')
+    const propCheckOutTime = p.checkOutTime || '07:00:00'
+    
+    if (checkOutTimeStr > propCheckOutTime) {
+      nights += 1
+    }
 
-    const total = roomSubtotal + serviceSubtotal - discount
-    const totalDue = Math.max(
+    // 3. Apply waiver if enabled
+    if (f.waiveLastDayCharge) {
+      nights -= 1
+    }
+
+    nights = Math.max(1, nights)
+
+    const roomSubtotal = a.reduce(
+      (sum, item) =>
+        sum + (Number(item.priceOverride) || Number(item.RoomType?.defaultPrice) || 0),
       0,
-      total - payments.reduce((sum, p) => sum + Number(p.amount), 0),
     )
+    const totalRoomCharges = roomSubtotal * nights
+    const serviceSubtotal = s.reduce(
+      (sum, item) => sum + Number(item.totalPrice),
+      0,
+    )
+    const subtotal = totalRoomCharges + serviceSubtotal
+    const discountAmount =
+      f.discountType === 'PERCENTAGE'
+        ? subtotal * (Number(f.discountAmount) / 100)
+        : Number(f.discountAmount || 0)
+
+    const tax = (subtotal - discountAmount) * ((p.taxPercentage || 0) / 100)
+    const finalTotal = subtotal - discountAmount + tax
+
+    return {
+      total: finalTotal,
+      nights,
+      roomTotal: totalRoomCharges,
+      serviceTotal: serviceSubtotal,
+      subtotal,
+      discount: discountAmount,
+      tax,
+    }
+  }
+
+  const {
+    total,
+    nights: totalNights,
+    roomTotal: totalRoomCharges,
+    serviceTotal: serviceSubtotal,
+    subtotal: bookingSubtotal,
+    discount,
+    tax: taxAmount,
+  } = calculateCurrentTotal()
+
+  const totalPaid = payments
+    .filter((p) => ['PAID', 'PARTIAL'].includes(p.status || ''))
+    .reduce((sum, p) => sum + Number(p.amount), 0)
+  const totalDue = Math.max(0, total - totalPaid)
+
+  useEffect(() => {
     setPaymentStatus(totalDue > 0 ? 'PARTIAL' : 'PAID')
-  }, [
-    payments,
-    folio?.discountType,
-    folio?.discountAmount,
-    assignments,
-    services,
-  ])
+  }, [totalDue])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updateFolioField = async (field: string, value: any) => {
     if (!folio) return
 
     let processedValue = value
-    // Convert to UTC if date
     if (
       (field === 'checkInDate' || field === 'checkOutDate') &&
       property?.timezone
@@ -226,12 +284,19 @@ export function BookingDetails({
       processedValue = fromZonedTime(value, property.timezone).toISOString()
     }
 
+    const updatedFolio = { ...folio, [field]: processedValue }
+    const { total: newTotal } = calculateCurrentTotal(updatedFolio)
+
     const { error } = await supabase
       .from('Booking')
-      .update({ [field]: processedValue } as TablesInsert<'Booking'>)
+      .update({ 
+        [field]: processedValue,
+        totalAmount: newTotal 
+      } as any)
       .eq('id', folio.id)
+      
     if (!error) {
-      setFolio({ ...folio, [field]: processedValue })
+      setFolio({ ...updatedFolio, totalAmount: newTotal })
       if (onRefresh) onRefresh()
     }
   }
@@ -382,26 +447,6 @@ export function BookingDetails({
     }
     setLoading(false)
   }
-
-  const roomSubtotal = assignments.reduce(
-    (sum, a) =>
-      sum + (Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0),
-    0,
-  )
-  const serviceSubtotal = services.reduce(
-    (sum, s) => sum + Number(s.totalPrice),
-    0,
-  )
-  const discount =
-    folio?.discountType === 'PERCENTAGE'
-      ? (roomSubtotal + serviceSubtotal) * (Number(folio?.discountAmount) / 100)
-      : Number(folio?.discountAmount || 0)
-
-  const total = roomSubtotal + serviceSubtotal - discount
-  const totalDue = Math.max(
-    0,
-    total - payments.reduce((sum, p) => sum + Number(p.amount), 0),
-  )
 
   if (!folio) return null
 
@@ -693,7 +738,7 @@ export function BookingDetails({
                   <SelectService
                     onAdd={handleAddService}
                     services={availableServices}
-                    existingIds={services.map((s) => s.serviceId)}
+                    existingIds={[]}
                   />
                 </div>
                 <div className="space-y-2">
@@ -711,7 +756,11 @@ export function BookingDetails({
                             Room {a.Room?.roomNumber} Stay
                           </p>
                           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                            Base Rate
+                            {totalNights} nights x ₹{(
+                              Number(a.priceOverride) ||
+                              Number(a.RoomType?.defaultPrice) ||
+                              0
+                            ).toLocaleString()}
                           </p>
                         </div>
                       </div>
@@ -793,13 +842,30 @@ export function BookingDetails({
 
               <Card className="border-none bg-slate-900 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-slate-900/20">
                 <CardContent className="p-8 space-y-4">
-                  <SummaryRow label="Stay Subtotal" value={roomSubtotal} />
+                  <SummaryRow label="Stay Subtotal" value={totalRoomCharges} />
                   <SummaryRow label="Services & F&B" value={serviceSubtotal} />
                   <SummaryRow
                     label="Discount"
                     value={-discount}
                     className="text-emerald-400"
                   />
+                  <SummaryRow label="Tax Amount" value={taxAmount} />
+                  
+                  <div className="pt-4 flex items-center justify-between border-t border-white/5">
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="checkbox" 
+                        id="waive-day"
+                        checked={folio?.waiveLastDayCharge || false}
+                        onChange={handleToggleWaiver}
+                        className="w-5 h-5 rounded-md accent-primary cursor-pointer bg-white/10 border-white/20"
+                      />
+                      <label htmlFor="waive-day" className="text-white/60 text-xs font-black uppercase tracking-widest cursor-pointer hover:text-white transition-colors">
+                        Waive Last Day Charge
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="pt-6 mt-4 border-t border-white/10 flex justify-between items-center">
                     <span className="text-4xl font-heading font-black tracking-tighter text-white">
                       ₹{total.toLocaleString()}
@@ -882,7 +948,7 @@ export function BookingDetails({
                         type="number"
                         step="0.01"
                         required
-                        defaultValue={String(totalDue)}
+                        defaultValue={totalDue}
                       />
                     </div>
                     <div className="space-y-2">
@@ -1008,6 +1074,8 @@ function SelectService({
   const options = services
     .filter((s) => !existingIds.includes(s.id))
     .map((s) => ({ value: s.id, label: `${s.name} - ₹${s.price}` }))
+    console.log(options, existingIds, services);
+
 
   return (
     <div className="w-[180px]">
@@ -1015,7 +1083,7 @@ function SelectService({
         options={options}
         onChange={onAdd}
         placeholder="Post Service..."
-        className="h-8 text-[9px] font-black uppercase tracking-widest bg-primary/5 border-none"
+        className="text-[9px] font-black uppercase tracking-widest bg-primary/5 border-none"
       />
     </div>
   )
@@ -1057,5 +1125,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tables, TablesInsert } from '@/database.types'
+import { Tables } from '@/database.types'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
+

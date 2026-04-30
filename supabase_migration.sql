@@ -38,6 +38,8 @@ CREATE TABLE "Property" (
     "timezone" TEXT NOT NULL,
     "tenantId" UUID NOT NULL REFERENCES "Tenant"("id") ON DELETE CASCADE,
     "taxPercentage" DOUBLE PRECISION DEFAULT 0,
+    "checkInTime" TIME DEFAULT '08:00',
+    "checkOutTime" TIME DEFAULT '07:00',
     "logoUrl" TEXT,
     "createdAt" TIMESTAMPTZ DEFAULT now(),
     "updatedAt" TIMESTAMPTZ DEFAULT now()
@@ -116,6 +118,7 @@ CREATE TABLE "Booking" (
     "discountAmount" DECIMAL(10, 2) DEFAULT 0,
     "discountType" TEXT DEFAULT 'FIXED', -- 'FIXED' or 'PERCENTAGE'
     "totalAmount" DECIMAL(10, 2),
+    "waiveLastDayCharge" BOOLEAN DEFAULT FALSE,
     "notes" TEXT,
     "createdAt" TIMESTAMPTZ DEFAULT now(),
     "updatedAt" TIMESTAMPTZ DEFAULT now()
@@ -433,9 +436,13 @@ CREATE OR REPLACE FUNCTION recalculate_booking_total()
 RETURNS TRIGGER AS $$
 DECLARE
     target_booking_id UUID;
-    room_subtotal DECIMAL(10, 2) := 0;
+    room_subtotal_nightly DECIMAL(10, 2) := 0;
     service_subtotal DECIMAL(10, 2) := 0;
-    total DECIMAL(10, 2) := 0;
+    subtotal DECIMAL(10, 2) := 0;
+    discount_val DECIMAL(10, 2) := 0;
+    tax_val DECIMAL(10, 2) := 0;
+    final_total DECIMAL(10, 2) := 0;
+    nights INTEGER := 1;
     booking_record RECORD;
 BEGIN
     -- Determine the booking ID based on the table firing the trigger
@@ -447,41 +454,71 @@ BEGIN
         target_booking_id := NEW."bookingId";
     END IF;
 
-    -- Calculate room subtotal: sum of priceOverride or RoomType.defaultPrice
+    -- Get booking details and linked property details
+    SELECT b.*, p."taxPercentage", p."checkOutTime" as prop_checkout_time
+    INTO booking_record
+    FROM "Booking" b
+    JOIN "Property" p ON b."propertyId" = p.id
+    WHERE b.id = target_booking_id;
+
+    -- Exit if booking not found
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    -- Calculate nights logic
+    -- 1. Base nights = calendar days difference
+    nights := (booking_record."checkOutDate"::DATE - booking_record."checkInDate"::DATE);
+    
+    -- 2. If checkout time is after property's checkout time, add 1 night
+    IF booking_record."checkOutDate"::TIME > booking_record.prop_checkout_time THEN
+        nights := nights + 1;
+    END IF;
+
+    -- 3. Apply waiver if enabled
+    IF booking_record."waiveLastDayCharge" = TRUE THEN
+        nights := nights - 1;
+    END IF;
+
+    -- 4. Minimum 1 night
+    nights := GREATEST(1, nights);
+
+    -- Calculate room subtotal (sum of nightly rates for all assigned rooms)
     SELECT COALESCE(SUM(COALESCE(br."priceOverride", rt."defaultPrice", 0)), 0)
-    INTO room_subtotal
+    INTO room_subtotal_nightly
     FROM "BookingRoom" br
     LEFT JOIN "RoomType" rt ON br."roomTypeId" = rt.id
     WHERE br."bookingId" = target_booking_id;
 
-    -- Calculate service subtotal: sum of totalPrice
+    -- Calculate service subtotal (posted charges)
     SELECT COALESCE(SUM("totalPrice"), 0)
     INTO service_subtotal
     FROM "BookingService"
     WHERE "bookingId" = target_booking_id;
 
-    -- Get discount details from the booking
-    SELECT "discountAmount", "discountType"
-    INTO booking_record
-    FROM "Booking"
-    WHERE id = target_booking_id;
-    
-    total := room_subtotal + service_subtotal;
+    -- Subtotal = (Room Charges * Nights) + Services
+    subtotal := (room_subtotal_nightly * nights) + service_subtotal;
 
-    -- Apply discount
+    -- Calculate discount amount
     IF booking_record."discountType" = 'PERCENTAGE' THEN
-        total := total - (total * (COALESCE(booking_record."discountAmount", 0) / 100));
+        discount_val := subtotal * (COALESCE(booking_record."discountAmount", 0) / 100);
     ELSE
-        total := total - COALESCE(booking_record."discountAmount", 0);
+        discount_val := COALESCE(booking_record."discountAmount", 0);
     END IF;
 
-    -- Update the Booking table
-    -- Since this trigger on Booking only fires OF "discountAmount", "discountType", updating "totalAmount" here will NOT cause infinite recursion!
+    -- Calculate tax on the post-discount subtotal
+    tax_val := (subtotal - discount_val) * (COALESCE(booking_record."taxPercentage", 0) / 100);
+
+    -- Final total calculation
+    final_total := subtotal - discount_val + tax_val;
+
+    -- Update the Booking table with the fresh total
+    -- Note: Updating ONLY "totalAmount" avoids infinite loops with trigger_recalculate_total_b
     UPDATE "Booking"
-    SET "totalAmount" = total
+    SET "totalAmount" = final_total
     WHERE id = target_booking_id;
 
-    RETURN NULL; -- For AFTER triggers, return value is ignored
+    RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -497,8 +534,14 @@ FOR EACH ROW EXECUTE PROCEDURE recalculate_booking_total();
 
 -- Trigger for master folio modifications (discounts)
 CREATE TRIGGER trigger_recalculate_total_b
-AFTER UPDATE OF "discountAmount", "discountType" ON "Booking"
-FOR EACH ROW WHEN (OLD."discountAmount" IS DISTINCT FROM NEW."discountAmount" OR OLD."discountType" IS DISTINCT FROM NEW."discountType")
+AFTER UPDATE OF "discountAmount", "discountType", "checkInDate", "checkOutDate", "waiveLastDayCharge" ON "Booking"
+FOR EACH ROW WHEN (
+    OLD."discountAmount" IS DISTINCT FROM NEW."discountAmount" OR 
+    OLD."discountType" IS DISTINCT FROM NEW."discountType" OR
+    OLD."checkInDate" IS DISTINCT FROM NEW."checkInDate" OR
+    OLD."checkOutDate" IS DISTINCT FROM NEW."checkOutDate" OR
+    OLD."waiveLastDayCharge" IS DISTINCT FROM NEW."waiveLastDayCharge"
+)
 EXECUTE PROCEDURE recalculate_booking_total();
 
 -- Storage Buckets Configuration

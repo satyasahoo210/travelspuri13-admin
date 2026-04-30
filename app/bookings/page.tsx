@@ -72,9 +72,14 @@ export default function BookingsPage() {
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchBookings()
-  }, [currentProperty])
+    if (!isDetailsOpen && currentProperty) {
+      const interval = setInterval(() => {
+        fetchBookings()
+      }, 30000) // 30 seconds
+
+      return () => clearInterval(interval)
+    }
+  }, [isDetailsOpen, currentProperty])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleBookingClick = (booking: any) => {
@@ -222,10 +227,10 @@ export default function BookingsPage() {
                             className={cn(
                               'w-fit font-black text-[9px] uppercase tracking-widest border-none px-3',
                               booking.status === 'CONFIRMED'
-                                ? 'bg-emerald-50 text-emerald-600'
-                                : booking.status === 'CHECKED_IN'
-                                  ? 'bg-primary/5 text-primary'
-                                  : 'bg-slate-100 text-slate-400',
+                                  ? 'bg-emerald-50 text-emerald-600'
+                                  : booking.status === 'CHECKED_IN'
+                                    ? 'bg-primary/5 text-primary'
+                                    : 'bg-slate-100 text-slate-400',
                             )}
                           >
                             {booking.status}
@@ -235,7 +240,7 @@ export default function BookingsPage() {
                         <div className="flex md:justify-end">
                           <div className="text-right">
                             <p className="text-xs font-black text-slate-400 uppercase tracking-tighter mb-1">
-                              Total Stay
+                              Booking Total
                             </p>
                             <p className="text-2xl font-heading font-black tracking-tighter text-slate-900">
                               ₹{booking.totalAmount?.toLocaleString() || '0'}
@@ -278,6 +283,7 @@ export default function BookingsPage() {
           open={isDetailsOpen}
           onOpenChange={setIsDetailsOpen}
           booking={selectedBooking}
+          onRefresh={fetchBookings}
         />
       )}
     </div>

@@ -1,0 +1,18 @@
+<svg width="420" height="120" viewBox="0 0 420 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .title { font: 600 28px 'Inter', 'Poppins', sans-serif; fill: #111111; letter-spacing: 0.5px; }
+    .subtitle { font: 400 14px 'Inter', 'Poppins', sans-serif; fill: #4B5563; letter-spacing: 1.5px; }
+  </style>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="420" height="120" rx="24" fill="#FFFFFF"/>
+
+  <!-- Brand Name -->
+  <text x="20" y="55" class="title">Travels Puri 13</text>
+
+  <!-- Subtle Wave Accent -->
+  <path d="M20 75 Q 60 65, 100 75 T 180 75" stroke="#2563EB" stroke-width="2" fill="none"/>
+
+  <!-- Tagline -->
+  <text x="20" y="100" class="subtitle">STAYS &amp; TRAVEL</text>
+</svg>

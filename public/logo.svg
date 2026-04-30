@@ -1,0 +1,14 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .text { font: 700 36px 'Inter', 'Poppins', sans-serif; fill: #111111; }
+  </style>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="120" height="120" rx="24" fill="#FFFFFF"/>
+
+  <!-- TP -->
+  <text x="28" y="70" class="text">TP</text>
+
+  <!-- Wave Accent -->
+  <path d="M20 85 Q 40 75, 60 85 T 100 85" stroke="#2563EB" stroke-width="2" fill="none"/>
+</svg>
