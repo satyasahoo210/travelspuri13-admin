@@ -1,13 +1,11 @@
 'use client';
 
 import { useAuth } from '@/components/providers/auth-provider';
+import { Tables } from '@/database.types';
 import { createClient } from '@/lib/utils/supabase/client';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-interface Property {
-  id: string;
-  name: string;
-}
+type Property = Pick<Tables<'Property'>, 'id' | 'name' | 'timezone'>
 
 interface PropertyContextType {
   currentProperty: Property | null;
@@ -36,7 +34,7 @@ export function PropertyProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       const { data, error } = await supabase
         .from('Property')
-        .select('id, name')
+        .select('id, name, timezone')
         .eq('tenantId', user.tenantId)
         .order('name');
 

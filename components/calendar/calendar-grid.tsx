@@ -1,42 +1,71 @@
-'use client';
+'use client'
 
-import type { BookingAssignment } from '@/app/calendar/page';
-import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import type { BookingAssignment } from '@/app/calendar/page'
+import { BookingForm } from '@/components/bookings/booking-form'
+import { Badge } from '@/components/ui/badge'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Tables } from '@/database.types';
-import { cn } from '@/lib/utils';
-import { addDays, differenceInDays, eachDayOfInterval, format, isSameDay, startOfDay } from 'date-fns';
-import { motion } from 'framer-motion';
-import { ArrowRight, Calendar, Home, Phone, User, Users } from 'lucide-react';
-import { useMemo, useState } from 'react';
+} from '@/components/ui/dialog'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
+import { Tables } from '@/database.types'
+import { cn } from '@/lib/utils'
+import {
+  addDays,
+  differenceInDays,
+  eachDayOfInterval,
+  format,
+  isSameDay,
+  startOfDay,
+} from 'date-fns'
+import { motion } from 'framer-motion'
+import { ArrowRight, Calendar, Home, Phone, Users } from 'lucide-react'
+import { useMemo, useState } from 'react'
 
 interface CalendarGridProps {
-  rooms: (Tables<'Room'> & { RoomType: Tables<'RoomType'> })[];
-  bookings: BookingAssignment[];
-  startDate?: Date;
+  rooms: (Tables<'Room'> & { RoomType: Tables<'RoomType'> })[]
+  bookings: BookingAssignment[]
+  startDate?: Date
 }
 
-export function CalendarGrid({ rooms, bookings: assignments, startDate = startOfDay(new Date()) }: CalendarGridProps) {
-  console.log(assignments);
-  
-  
-  const [viewDays] = useState(7);
-  const [selectedAssignment, setSelectedAssignment] = useState<BookingAssignment | null>(null);
-  const [selectedRoomNumber, setSelectedRoomNumber] = useState<string | null>(null);
-  
+export function CalendarGrid({
+  rooms,
+  bookings: assignments,
+  startDate = startOfDay(new Date()),
+}: CalendarGridProps) {
+  const [viewDays] = useState(7)
+  const [selectedAssignment, setSelectedAssignment] =
+    useState<BookingAssignment | null>(null)
+  const [selectedRoomNumber, setSelectedRoomNumber] = useState<string | null>(
+    null,
+  )
+
+  const [isCreatingBooking, setIsCreatingBooking] = useState(false)
+  const [newBookingData, setNewBookingData] = useState<{
+    roomId?: string
+    checkIn?: string
+    checkOut?: string
+  }>()
+  const [rangeStart, setRangeStart] = useState<{
+    roomId: string
+    date: Date
+  } | null>(null)
+
   const days = useMemo(() => {
     return eachDayOfInterval({
       start: startDate,
       end: addDays(startDate, viewDays - 1),
-    });
-  }, [startDate, viewDays]);
+    })
+  }, [startDate, viewDays])
 
   return (
     <>
@@ -44,14 +73,25 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
         {/* Header */}
         <div className="flex border-b border-slate-100 bg-slate-50/50">
           <div className="w-32 shrink-0 p-6 border-r border-slate-100 font-black text-[10px] uppercase tracking-[0.2em] text-slate-400 flex items-center justify-center text-center">
-            Room<br />Registry
+            Room
+            <br />
+            Registry
           </div>
           <div className="flex-1 grid grid-cols-7 overflow-hidden">
             {days.map((day) => (
-              <div key={day.toString()} className="p-6 text-center border-r border-slate-100 last:border-r-0">
-                <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{format(day, 'EEE')}</p>
-                <p className="text-2xl font-heading font-black tracking-tighter text-slate-900">{format(day, 'dd')}</p>
-                <p className="text-[10px] text-primary font-black uppercase tracking-tighter">{format(day, 'MMM')}</p>
+              <div
+                key={day.toString()}
+                className="p-6 text-center border-r border-slate-100 last:border-r-0"
+              >
+                <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">
+                  {format(day, 'EEE')}
+                </p>
+                <p className="text-2xl font-heading font-black tracking-tighter text-slate-900">
+                  {format(day, 'dd')}
+                </p>
+                <p className="text-[10px] text-primary font-black uppercase tracking-tighter">
+                  {format(day, 'MMM')}
+                </p>
               </div>
             ))}
           </div>
@@ -60,16 +100,25 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
         {/* Grid Content */}
         <div className="overflow-y-auto max-h-[700px] scrollbar-none">
           {rooms.map((room) => (
-            <div key={room.id} className="flex border-b border-slate-50 last:border-b-0 group transition-colors hover:bg-slate-50/30">
+            <div
+              key={room.id}
+              className="flex border-b border-slate-50 last:border-b-0 group transition-colors hover:bg-slate-50/30"
+            >
               {/* Room Info */}
               <div className="w-32 shrink-0 p-6 border-r border-slate-100 flex flex-col items-center justify-center group-hover:bg-slate-50 transition-colors relative z-10 bg-white">
-                <p className="text-2xl font-heading font-black tracking-tighter text-primary">{room.roomNumber}</p>
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">{room.RoomType.name}</p>
-                <Badge 
-                  variant="outline" 
+                <p className="text-2xl font-heading font-black tracking-tighter text-primary">
+                  {room.roomNumber}
+                </p>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                  {room.RoomType.name}
+                </p>
+                <Badge
+                  variant="outline"
                   className={cn(
-                    "text-[8px] h-4 scale-90 px-2 font-black uppercase tracking-tighter border-none",
-                    room.status === 'AVAILABLE' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                    'text-[8px] h-4 scale-90 px-2 font-black uppercase tracking-tighter border-none',
+                    room.status === 'AVAILABLE'
+                      ? 'bg-emerald-50 text-emerald-600'
+                      : 'bg-amber-50 text-amber-600',
                   )}
                 >
                   {room.status}
@@ -78,9 +127,70 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
 
               {/* Timeline */}
               <div className="flex-1 grid grid-cols-7 relative h-32">
-                {days.map((day) => (
-                  <div key={day.toString()} className="border-r border-slate-50 last:border-r-0 bg-transparent" />
-                ))}
+                {days.map((day) => {
+                  const isStart =
+                    rangeStart?.roomId === room.id &&
+                    isSameDay(rangeStart.date, day)
+                  const isInRange =
+                    rangeStart?.roomId === room.id &&
+                    day > rangeStart.date &&
+                    newBookingData?.roomId === room.id &&
+                    newBookingData.checkOut &&
+                    day < new Date(newBookingData.checkOut)
+
+                  return (
+                    <div
+                      key={day.toString()}
+                      className={cn(
+                        'border-r border-slate-50 last:border-r-0 cursor-pointer transition-all relative group/cell',
+                        isStart ? 'bg-primary/10' : 'hover:bg-primary/5',
+                      )}
+                      onClick={() => {
+                        if (!rangeStart || rangeStart.roomId !== room.id) {
+                          setRangeStart({ roomId: room.id, date: day })
+                          setNewBookingData({
+                            roomId: room.id,
+                            checkIn: format(day, "yyyy-MM-dd'T'14:00"),
+                          })
+                        } else {
+                          // Second click
+                          if (isSameDay(rangeStart.date, day)) {
+                            // Reset if same day
+                            setRangeStart(null)
+                            setNewBookingData(undefined)
+                          } else if (day > rangeStart.date) {
+                            // Valid range
+                            setNewBookingData({
+                              roomId: room.id,
+                              checkIn: format(
+                                rangeStart.date,
+                                "yyyy-MM-dd'T'14:00",
+                              ),
+                              checkOut: format(day, "yyyy-MM-dd'T'11:00"),
+                            })
+                            setIsCreatingBooking(true)
+                            setRangeStart(null)
+                          } else {
+                            // Earlier date, reset start
+                            setRangeStart({ roomId: room.id, date: day })
+                            setNewBookingData({
+                              roomId: room.id,
+                              checkIn: format(day, "yyyy-MM-dd'T'14:00"),
+                            })
+                          }
+                        }
+                      }}
+                    >
+                      {isStart && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="text-[8px] font-black uppercase text-primary animate-pulse">
+                            Select Checkout
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
 
                 {/* Bookings on this room */}
                 <div className="absolute inset-0 pointer-events-none p-2">
@@ -88,20 +198,45 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
                     .filter((a) => a.roomId === room.id)
                     .map((assignment) => {
                       // Fallback logic for dates: Assignment dates -> Folio dates
-                      const checkIn = startOfDay(new Date(assignment.checkInDate || assignment.Booking.checkInDate));
-                      const checkOut = startOfDay(new Date(assignment.checkOutDate || assignment.Booking.checkOutDate));
-                      
-                      if (checkOut <= startDate || checkIn >= addDays(startDate, viewDays)) return null;
+                      const checkIn = startOfDay(
+                        new Date(
+                          assignment.checkInDate ||
+                            assignment.Booking.checkInDate,
+                        ),
+                      )
+                      const checkOut = startOfDay(
+                        new Date(
+                          assignment.checkOutDate ||
+                            assignment.Booking.checkOutDate,
+                        ),
+                      )
 
-                      const startOffset = Math.max(0, differenceInDays(checkIn, startDate));
+                      if (
+                        checkOut <= startDate ||
+                        checkIn >= addDays(startDate, viewDays)
+                      )
+                        return null
+
+                      const startOffset = Math.max(
+                        0,
+                        differenceInDays(checkIn, startDate),
+                      )
                       const durationInView = differenceInDays(
-                        new Date(Math.min(checkOut.getTime(), addDays(startDate, viewDays).getTime())),
-                        new Date(Math.max(checkIn.getTime(), startDate.getTime()))
-                      );
+                        new Date(
+                          Math.min(
+                            checkOut.getTime(),
+                            addDays(startDate, viewDays).getTime(),
+                          ),
+                        ),
+                        new Date(
+                          Math.max(checkIn.getTime(), startDate.getTime()),
+                        ),
+                      )
 
-                      if (durationInView <= 0) return null;
+                      if (durationInView <= 0) return null
 
-                      const status = assignment.status || assignment.Booking.status;
+                      const status =
+                        assignment.status || assignment.Booking.status
 
                       return (
                         <motion.div
@@ -110,8 +245,8 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
                           onClick={() => {
-                            setSelectedAssignment(assignment);
-                            setSelectedRoomNumber(room.roomNumber);
+                            setSelectedAssignment(assignment)
+                            setSelectedRoomNumber(room.roomNumber)
                           }}
                           className="absolute bottom-2 pointer-events-auto cursor-pointer group/booking"
                           style={{
@@ -120,16 +255,22 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
                             height: 'calc(100% - 16px)',
                           }}
                         >
-                          <div className={cn(
-                            "h-full mx-1 rounded-2xl p-3 flex flex-col justify-center border shadow-sm transition-all group-hover/booking:shadow-md group-hover/booking:scale-[1.02] relative overflow-hidden",
-                            status === 'CONFIRMED' ? "bg-emerald-50 border-emerald-100 text-emerald-900" :
-                            status === 'CHECKED_IN' ? "bg-primary/5 border-primary/20 text-primary" :
-                            "bg-slate-100 border-slate-200 text-slate-900"
-                          )}>
+                          <div
+                            className={cn(
+                              'h-full mx-1 rounded-2xl p-3 flex flex-col justify-center border shadow-sm transition-all group-hover/booking:shadow-md group-hover/booking:scale-[1.02] relative overflow-hidden',
+                              status === 'CONFIRMED'
+                                ? 'bg-emerald-50 border-emerald-100 text-emerald-900'
+                                : status === 'CHECKED_IN'
+                                  ? 'bg-primary/5 border-primary/20 text-primary'
+                                  : 'bg-slate-100 border-slate-200 text-slate-900',
+                            )}
+                          >
                             <div className="absolute top-0 right-0 p-1 opacity-20 group-hover/booking:opacity-40 transition-opacity">
                               <Calendar className="w-8 h-8 -rotate-12" />
                             </div>
-                            <p className="text-[11px] font-black tracking-tighter truncate uppercase">{assignment.Booking.Guest.name}</p>
+                            <p className="text-[11px] font-black tracking-tighter truncate uppercase">
+                              {assignment.Booking.Guest.name}
+                            </p>
                             <div className="flex items-center gap-1 mt-1">
                               <p className="text-[9px] font-black opacity-60 tracking-widest uppercase">
                                 {format(checkIn, 'dd MMM')}
@@ -141,7 +282,7 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
                             </div>
                           </div>
                         </motion.div>
-                      );
+                      )
                     })}
                 </div>
               </div>
@@ -151,7 +292,10 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
       </div>
 
       {/* Assignment Details Dialog */}
-      <Dialog open={!!selectedAssignment} onOpenChange={(open) => !open && setSelectedAssignment(null)}>
+      <Dialog
+        open={!!selectedAssignment}
+        onOpenChange={(open) => !open && setSelectedAssignment(null)}
+      >
         <DialogContent className="sm:max-w-[450px] rounded-[2.5rem] p-0 overflow-hidden border-none shadow-2xl">
           <div className="bg-primary p-8 text-white relative">
             <div className="absolute top-0 right-0 p-8 opacity-10">
@@ -160,7 +304,8 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
             <DialogHeader className="relative z-10">
               <div className="flex items-center gap-2 mb-4">
                 <Badge className="bg-white/20 hover:bg-white/30 text-white border-none font-black uppercase tracking-widest text-[9px]">
-                  {selectedAssignment?.status || selectedAssignment?.Booking.status}
+                  {selectedAssignment?.status ||
+                    selectedAssignment?.Booking.status}
                 </Badge>
                 {selectedAssignment?.priceOverride && (
                   <Badge className="bg-amber-400 text-amber-900 border-none font-black uppercase tracking-widest text-[9px]">
@@ -182,64 +327,124 @@ export function CalendarGrid({ rooms, bookings: assignments, startDate = startOf
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2 text-slate-400">
                   <Home className="w-3 h-3" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Room Selection</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">
+                    Room Selection
+                  </span>
                 </div>
-                <p className="text-2xl font-heading font-black tracking-tighter text-slate-900">Room {selectedRoomNumber}</p>
+                <p className="text-2xl font-heading font-black tracking-tighter text-slate-900">
+                  Room {selectedRoomNumber}
+                </p>
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2 text-slate-400">
                   <Users className="w-3 h-3" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Occupants</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">
+                    Occupants
+                  </span>
                 </div>
                 <p className="text-lg font-bold text-slate-900 truncate">
-                  {selectedAssignment?.Booking.adults} Adults, {selectedAssignment?.Booking.children} Kids
+                  {selectedAssignment?.Booking.adults} Adults,{' '}
+                  {selectedAssignment?.Booking.children} Kids
                 </p>
               </div>
             </div>
 
             <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 flex items-center justify-between">
               <div className="text-center flex-1">
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Check In</span>
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                  Check In
+                </span>
                 <p className="text-lg font-black text-slate-900 tracking-tighter">
-                  {selectedAssignment ? format(new Date(selectedAssignment.checkInDate || selectedAssignment.Booking.checkInDate), 'dd MMM yyyy') : ''}
+                  {selectedAssignment
+                    ? format(
+                        new Date(
+                          selectedAssignment.checkInDate ||
+                            selectedAssignment.Booking.checkInDate,
+                        ),
+                        'dd MMM yyyy',
+                      )
+                    : ''}
                 </p>
               </div>
               <div className="px-4 text-slate-200">
                 <ArrowRight className="w-6 h-6 rotate-12" />
               </div>
               <div className="text-center flex-1">
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Check Out</span>
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                  Check Out
+                </span>
                 <p className="text-lg font-black text-slate-900 tracking-tighter">
-                  {selectedAssignment ? format(new Date(selectedAssignment.checkOutDate || selectedAssignment.Booking.checkOutDate), 'dd MMM yyyy') : ''}
+                  {selectedAssignment
+                    ? format(
+                        new Date(
+                          selectedAssignment.checkOutDate ||
+                            selectedAssignment.Booking.checkOutDate,
+                        ),
+                        'dd MMM yyyy',
+                      )
+                    : ''}
                 </p>
               </div>
             </div>
 
             {selectedAssignment?.Booking.notes && (
               <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
-                <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest block mb-1 italic">Folio Notes</span>
-                <p className="text-xs font-bold text-amber-900/70 leading-relaxed capitalize">{selectedAssignment.Booking.notes}</p>
+                <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest block mb-1 italic">
+                  Folio Notes
+                </span>
+                <p className="text-xs font-bold text-amber-900/70 leading-relaxed capitalize">
+                  {selectedAssignment.Booking.notes}
+                </p>
               </div>
             )}
 
             <div className="pt-4 flex flex-col gap-3">
-              <a 
-                href={`tel:${selectedAssignment?.Booking.Guest.phone}`} 
+              <a
+                href={`tel:${selectedAssignment?.Booking.Guest.phone}`}
                 className={cn(
                   buttonVariants({ variant: 'default' }),
-                  "w-full h-16 rounded-2xl bg-primary shadow-xl shadow-primary/20 font-heading font-black tracking-tighter text-xl hover:scale-[1.02] transition-transform flex items-center justify-center gap-3 text-white"
+                  'w-full h-16 rounded-2xl bg-primary shadow-xl shadow-primary/20 font-heading font-black tracking-tighter text-xl hover:scale-[1.02] transition-transform flex items-center justify-center gap-3 text-white',
                 )}
               >
                 <Phone className="w-5 h-5" />
                 CALL PRIMARY GUEST
               </a>
-              <Button variant="outline" onClick={() => setSelectedAssignment(null)} className="w-full h-14 rounded-2xl border-slate-200 font-heading font-black tracking-tighter text-lg hover:bg-slate-50 transition-colors">
+              <Button
+                variant="outline"
+                onClick={() => setSelectedAssignment(null)}
+                className="w-full h-14 rounded-2xl border-slate-200 font-heading font-black tracking-tighter text-lg hover:bg-slate-50 transition-colors"
+              >
                 CLOSE PREVIEW
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Create Booking Sheet */}
+      <Sheet open={isCreatingBooking} onOpenChange={setIsCreatingBooking}>
+        <SheetContent
+          side="right"
+          className="sm:max-w-xl bg-white border-l p-0 flex flex-col h-full shadow-2xl overflow-y-auto"
+        >
+          <SheetHeader className="p-8 border-b border-slate-100 shrink-0">
+            <SheetTitle className="text-3xl font-heading font-black tracking-tighter">
+              New Booking
+            </SheetTitle>
+          </SheetHeader>
+          <div className="p-8">
+            {isCreatingBooking && (
+              <BookingForm
+                initialData={newBookingData}
+                onSuccess={() => {
+                  setIsCreatingBooking(false)
+                  window.location.reload()
+                }}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </>
-  );
+  )
 }

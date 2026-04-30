@@ -371,33 +371,39 @@ export type Database = {
       }
       Guest: {
         Row: {
+          address: string | null
           createdAt: string | null
           email: string | null
           id: string
           idProofNumber: string | null
           idProofType: string | null
+          idProofUrl: string | null
           name: string
           phone: string | null
           tenantId: string
           updatedAt: string | null
         }
         Insert: {
+          address?: string | null
           createdAt?: string | null
           email?: string | null
           id?: string
           idProofNumber?: string | null
           idProofType?: string | null
+          idProofUrl?: string | null
           name: string
           phone?: string | null
           tenantId: string
           updatedAt?: string | null
         }
         Update: {
+          address?: string | null
           createdAt?: string | null
           email?: string | null
           id?: string
           idProofNumber?: string | null
           idProofType?: string | null
+          idProofUrl?: string | null
           name?: string
           phone?: string | null
           tenantId?: string
@@ -761,8 +767,11 @@ export type Database = {
         Row: {
           address: string
           createdAt: string | null
+          email: string | null
           id: string
+          logoUrl: string | null
           name: string
+          phone: string | null
           taxPercentage: number | null
           tenantId: string
           timezone: string
@@ -771,8 +780,11 @@ export type Database = {
         Insert: {
           address: string
           createdAt?: string | null
+          email?: string | null
           id?: string
+          logoUrl?: string | null
           name: string
+          phone?: string | null
           taxPercentage?: number | null
           tenantId: string
           timezone: string
@@ -781,8 +793,11 @@ export type Database = {
         Update: {
           address?: string
           createdAt?: string | null
+          email?: string | null
           id?: string
+          logoUrl?: string | null
           name?: string
+          phone?: string | null
           taxPercentage?: number | null
           tenantId?: string
           timezone?: string
