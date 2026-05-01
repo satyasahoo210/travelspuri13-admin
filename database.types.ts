@@ -381,6 +381,7 @@ export type Database = {
           idProofNumber: string | null
           idProofType: string | null
           idProofUrl: string | null
+          gstin: string | null
           name: string
           phone: string | null
           tenantId: string
@@ -394,6 +395,7 @@ export type Database = {
           idProofNumber?: string | null
           idProofType?: string | null
           idProofUrl?: string | null
+          gstin?: string | null
           name: string
           phone?: string | null
           tenantId: string
@@ -407,6 +409,7 @@ export type Database = {
           idProofNumber?: string | null
           idProofType?: string | null
           idProofUrl?: string | null
+          gstin?: string | null
           name?: string
           phone?: string | null
           tenantId?: string

@@ -128,6 +128,7 @@ export const generateInvoicePDF = async (
     total: number
     totalPaid: number
     balance: number
+    showTax?: boolean
   },
 ) => {
   const doc = new jsPDF()
@@ -234,6 +235,13 @@ export const generateInvoicePDF = async (
   }
 
   drawDetail('Guest Name:', folio.Guest!.name, col1, currentY)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const gstin = (folio.Guest as any)?.gstin
+  if (gstin) {
+    currentY += 7
+    drawDetail('GSTIN:', gstin, col1, currentY)
+  }
+
   drawDetail(
     'Invoice ID:',
     `#${folio.id.toUpperCase().slice(0, 8)}`,
@@ -383,7 +391,9 @@ export const generateInvoicePDF = async (
 
   drawTotalRow('Sub Total:', subtotal, currentY)
   drawTotalRow('Discount:', discount, currentY + 6)
-  drawTotalRow(`Tax (${property.taxPercentage}%):`, tax, currentY + 12)
+  if (totals.tax > 0 || totals.showTax) {
+    drawTotalRow(`Tax (${property.taxPercentage}%):`, tax, currentY + 12)
+  }
 
   currentY += 22
   doc.setDrawColor(203, 213, 225)

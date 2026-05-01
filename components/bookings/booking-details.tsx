@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/utils/supabase/client'
 import { differenceInCalendarDays, format } from 'date-fns'
 import {
+  AlertCircle,
   BedDouble,
   Calendar,
   CreditCard,
@@ -79,6 +80,9 @@ export function BookingDetails({
   const [availableServices, setAvailableServices] = useState<Service[]>([])
   const [availableRooms, setAvailableRooms] = useState<Room[]>([])
   const [property, setProperty] = useState<Property | null>(null)
+  const [showTax, setShowTax] = useState(true)
+  const [isInvoicePreviewOpen, setIsInvoicePreviewOpen] = useState(false)
+  const [gstin, setGstin] = useState('')
 
   const fetchFolioData = async () => {
     if (!leadBooking?.id) return
@@ -129,7 +133,10 @@ export function BookingDetails({
           .order('createdAt', { ascending: true }),
       ])
 
-      if (folioRes.data) setFolio(folioRes.data)
+      if (folioRes.data) {
+        setFolio(folioRes.data)
+        setGstin(folioRes.data.Guest?.gstin || '')
+      }
       if (assignmentsRes.data) setAssignments(assignmentsRes.data)
       if (servicesRes.data) setServices(servicesRes.data)
       if (allServicesRes.data) setAvailableServices(allServicesRes.data)
@@ -159,6 +166,19 @@ export function BookingDetails({
     }
   }
 
+  const handleUpdateGstin = async (val: string) => {
+    if (!folio?.guestId) return
+    setGstin(val)
+    const { error } = await supabase
+      .from('Guest')
+      .update({ gstin: val } as any)
+      .eq('id', folio.guestId)
+    
+    if (error) {
+      console.error('Error updating GSTIN:', error)
+    }
+  }
+
   const handleGenerateInvoice = async () => {
     if (!folio || !property) return
     const { 
@@ -176,6 +196,7 @@ export function BookingDetails({
       total,
       totalPaid,
       balance: totalDue,
+      showTax,
     })
 
     await supabase.from('Billing').upsert({
@@ -239,7 +260,7 @@ export function BookingDetails({
         ? subtotal * (Number(f.discountAmount) / 100)
         : Number(f.discountAmount || 0)
 
-    const tax = (subtotal - discountAmount) * ((p.taxPercentage || 0) / 100)
+    const tax = showTax ? (subtotal - discountAmount) * ((p.taxPercentage || 0) / 100) : 0
     const finalTotal = subtotal - discountAmount + tax
 
     return {
@@ -685,25 +706,18 @@ export function BookingDetails({
                       }
                     />
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                      Check Out
-                    </p>
-                    <Input
-                      type="datetime-local"
-                      className="h-12 rounded-xl text-xs font-bold"
-                      value={format(
-                        toZonedTime(
-                          new Date(folio.checkOutDate),
-                          property?.timezone || 'UTC',
-                        ),
-                        "yyyy-MM-dd'T'HH:mm",
-                      )}
-                      onChange={(e) =>
-                        updateFolioField('checkOutDate', e.target.value)
-                      }
-                    />
-                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                    <Receipt className="w-3 h-3" /> Guest GSTIN
+                  </p>
+                  <Input
+                    className="h-12 rounded-xl text-xs font-bold bg-slate-50 border-slate-100 uppercase"
+                    value={gstin}
+                    onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                    onBlur={(e) => handleUpdateGstin(e.target.value)}
+                    placeholder="Enter GSTIN if required"
+                  />
                 </div>
               </section>
 
@@ -851,7 +865,7 @@ export function BookingDetails({
                   />
                   <SummaryRow label="Tax Amount" value={taxAmount} />
                   
-                  <div className="pt-4 flex items-center justify-between border-t border-white/5">
+                  <div className="pt-4 flex items-center justify-between border-t border-white/5 gap-4">
                     <div className="flex items-center gap-3">
                       <input 
                         type="checkbox" 
@@ -861,7 +875,19 @@ export function BookingDetails({
                         className="w-5 h-5 rounded-md accent-primary cursor-pointer bg-white/10 border-white/20"
                       />
                       <label htmlFor="waive-day" className="text-white/60 text-xs font-black uppercase tracking-widest cursor-pointer hover:text-white transition-colors">
-                        Waive Last Day Charge
+                        Waive Day
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="checkbox" 
+                        id="show-tax"
+                        checked={showTax}
+                        onChange={(e) => setShowTax(e.target.checked)}
+                        className="w-5 h-5 rounded-md accent-primary cursor-pointer bg-white/10 border-white/20"
+                      />
+                      <label htmlFor="show-tax" className="text-white/60 text-xs font-black uppercase tracking-widest cursor-pointer hover:text-white transition-colors">
+                        Include Tax
                       </label>
                     </div>
                   </div>
@@ -909,14 +935,82 @@ export function BookingDetails({
 
           {/* Footer Actions */}
           <div className="p-8 border-t border-slate-100 bg-white flex gap-4 shrink-0">
-            <Button
-              variant="outline"
-              onClick={handleGenerateInvoice}
-              className="h-16 rounded-2xl border-slate-200 font-heading font-black tracking-tighter text-lg hover:bg-slate-50 transition-all"
-            >
-              <Receipt className="size-6 text-slate-400" />
-              INVOICE
-            </Button>
+            <Dialog open={isInvoicePreviewOpen} onOpenChange={setIsInvoicePreviewOpen}>
+              <DialogTrigger render={
+                <Button
+                  variant="outline"
+                  className="h-16 rounded-2xl border-slate-200 font-heading font-black tracking-tighter text-lg hover:bg-slate-50 transition-all" />
+                }
+              >
+                  <Receipt className="size-6 text-slate-400" />
+                  INVOICE
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto rounded-[2rem] p-0 border-none shadow-2xl">
+                <div className="p-10 space-y-8 bg-white">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-4xl font-heading font-black tracking-tighter text-slate-900 leading-none">
+                        Invoice Preview
+                      </h3>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
+                        Verify details before downloading
+                      </p>
+                    </div>
+                    <Button 
+                      onClick={handleGenerateInvoice}
+                      className="rounded-xl font-black text-[10px] uppercase tracking-widest h-12 px-6"
+                    >
+                      Download PDF
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-8 p-8 bg-slate-50 rounded-3xl border border-slate-100">
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Guest</p>
+                        <p className="font-black text-slate-900">{folio.Guest?.name}</p>
+                        {gstin && <p className="text-[10px] font-bold text-primary mt-1">GSTIN: {gstin}</p>}
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Stay</p>
+                        <p className="font-bold text-slate-600 text-sm">
+                          {format(new Date(folio.checkInDate), 'dd MMM')} - {format(new Date(folio.checkOutDate), 'dd MMM yyyy')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs font-bold">
+                        <span className="text-slate-500">Accommodation ({totalNights} nights)</span>
+                        <span className="text-slate-900">₹{totalRoomCharges.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-xs font-bold">
+                        <span className="text-slate-500">Services & Extras</span>
+                        <span className="text-slate-900">₹{serviceSubtotal.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-xs font-bold text-emerald-600">
+                        <span>Discount</span>
+                        <span>- ₹{discount.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-xs font-bold">
+                        <span className="text-slate-500">Tax {showTax ? `(${property?.taxPercentage}%)` : '(Excluded)'}</span>
+                        <span className="text-slate-900">₹{taxAmount.toLocaleString()}</span>
+                      </div>
+                      <div className="pt-4 border-t border-slate-200 flex justify-between items-center">
+                        <span className="text-sm font-black uppercase tracking-widest text-slate-400">Total Payable</span>
+                        <span className="text-2xl font-heading font-black text-primary">₹{total.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                    <AlertCircle className="w-5 h-5 text-amber-600" />
+                    <p className="text-[10px] font-bold text-amber-800 leading-tight italic">
+                      This is a digital preview. The generated PDF will include full property details, payment breakup, and authorized signature blocks.
+                    </p>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
             <Dialog>
               <DialogTrigger
                 disabled={totalDue === 0}

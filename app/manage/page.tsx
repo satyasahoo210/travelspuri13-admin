@@ -37,6 +37,7 @@ import {
   Menu,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Store,
   Trash2,
@@ -45,6 +46,7 @@ import {
   Users,
   UtensilsCrossed,
   X,
+  XCircle,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
@@ -205,7 +207,8 @@ export default function ManagePage() {
       // Handle Joins for better display
       if (activeEntity === 'Room') query = query.select('*, RoomType(name)')
       if (activeEntity === 'Booking') query = query.select('*, Guest(name)')
-      if (activeEntity === 'Order') query = query.select('*, Guest(name)')
+      if (activeEntity === 'Order')
+        query = query.select('*, Booking(Guest(name))')
       if (activeEntity === 'RoomType') query = query.select('*, Property(name)')
 
       const { data, count, error } = await query
@@ -377,6 +380,7 @@ export default function ManagePage() {
         idProofFile: _idProofFile,
         logoFile: _logoFile,
         overrideRate: _overrideRate,
+        numberOfRooms,
         ...payloadData
       } = data
 
@@ -468,6 +472,17 @@ export default function ManagePage() {
           .eq('id', editingItem.id)
           .select()
           .single()
+      } else if (
+        activeEntity === 'Room' &&
+        parseInt(numberOfRooms as string) > 1
+      ) {
+        const startNum = parseInt(data.roomNumber as string)
+        const count = parseInt(numberOfRooms as string)
+        const payloads = Array.from({ length: count }, (_, i) => ({
+          ...payload,
+          roomNumber: (startNum + i).toString(),
+        }))
+        dbResult = await supabase.from('Room').insert(payloads as any).select()
       } else {
         dbResult = await supabase
           .from(activeEntity as any)
@@ -561,17 +576,36 @@ export default function ManagePage() {
     return (
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="relative w-full md:w-96">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input
-              placeholder={`Search ${activeEntity}...`}
-              className="pl-12 h-14 rounded-2xl text-sm border-slate-100 bg-white shadow-sm transition-all focus:ring-2 focus:ring-primary/20"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value)
-                setCurrentPage(0)
+          <div className="flex items-center gap-3 w-full md:w-auto flex-1">
+            <div className="relative flex-1 md:max-w-md group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 transition-colors group-focus-within:text-primary" />
+              <Input
+                placeholder={`Search ${activeEntity}...`}
+                className="pl-12! h-14 rounded-2xl text-sm border-slate-100 bg-white shadow-sm transition-all focus:ring-2 focus:ring-primary/20"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  setCurrentPage(0)
+                }}
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-14 w-14 rounded-2xl border-slate-100 bg-white shadow-sm shrink-0 hover:bg-slate-50 active:scale-95 transition-all"
+              onClick={() => {
+                fetchEntities()
+                fetchDropdowns()
               }}
-            />
+              disabled={loading}
+            >
+              <motion.div
+                animate={loading ? { rotate: 360 } : { }}
+                transition={{ repeat: loading ? Infinity : 1, duration: 1, ease: 'linear' }}
+              >
+                <RefreshCw className={`w-5 h-5 ${loading ? 'text-primary' : 'text-slate-400'}`} />
+              </motion.div>
+            </Button>
           </div>
           <Button
             onClick={() => {
@@ -794,14 +828,6 @@ export default function ManagePage() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Description</Label>
-              <Input
-                name="description"
-                placeholder="King size bed with sea view"
-                defaultValue={editingItem?.description || ''}
-              />
-            </div>
-            <div className="space-y-2">
               <Label>Capacity</Label>
               <Input
                 name="capacity"
@@ -841,8 +867,20 @@ export default function ManagePage() {
       case 'Room':
         return (
           <>
+            {!editingItem && (
+              <div className="space-y-2">
+                <Label>Number of Rooms to Create</Label>
+                <Input
+                  name="numberOfRooms"
+                  type="number"
+                  min="1"
+                  defaultValue="1"
+                  required
+                />
+              </div>
+            )}
             <div className="space-y-2">
-              <Label>Room Number</Label>
+              <Label>{editingItem ? 'Room Number' : 'Starting Room Number'}</Label>
               <Input
                 name="roomNumber"
                 required
@@ -1443,6 +1481,7 @@ export default function ManagePage() {
               key={item.id}
               onClick={() => {
                 setActiveEntity(item.id as EntityType)
+                setCurrentPage(0)
                 setSelectedPropertyId(null)
                 setIsQuickAddGuest(false)
                 setSuccess(null)
@@ -1495,6 +1534,14 @@ export default function ManagePage() {
               >
                 <CheckCircle2 className="w-6 h-6" />
                 <p className="font-black tracking-tight">{success}</p>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto text-red-500"
+                  onClick={() => setSuccess(null)}
+                >
+                  <XCircle />
+                </Button>
               </motion.div>
             )}
             {error && (
@@ -1506,6 +1553,14 @@ export default function ManagePage() {
               >
                 <AlertCircle className="w-6 h-6" />
                 <p className="font-black tracking-tight">{error}</p>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto text-red-500"
+                  onClick={() => setError(null)}
+                >
+                  <XCircle />
+                </Button>
               </motion.div>
             )}
           </AnimatePresence>

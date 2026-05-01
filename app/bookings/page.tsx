@@ -71,11 +71,12 @@ export default function BookingsPage() {
     setLoading(false)
   }
 
-  useEffect(() => {
+  useEffect(() => {    
     if (!isDetailsOpen && currentProperty) {
-      const interval = setInterval(() => {
+      const interval = setInterval(function repeatedFetchBookings() {
         fetchBookings()
-      }, 30000) // 30 seconds
+        return repeatedFetchBookings;
+      }(), 30000) // 30 seconds
 
       return () => clearInterval(interval)
     }

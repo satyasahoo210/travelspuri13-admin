@@ -98,6 +98,7 @@ CREATE TABLE "Guest" (
     "idProofType" TEXT,
     "idProofNumber" TEXT,
     "idProofUrl" TEXT,
+    "gstin" TEXT,
     "tenantId" UUID NOT NULL REFERENCES "Tenant"("id") ON DELETE CASCADE,
     "createdAt" TIMESTAMPTZ DEFAULT now(),
     "updatedAt" TIMESTAMPTZ DEFAULT now()
