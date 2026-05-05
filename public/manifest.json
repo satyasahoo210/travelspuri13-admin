@@ -1,20 +1,20 @@
 {
-  "name": "Antigravity PMS",
-  "short_name": "Antigravity",
-  "description": "Modern Hotel Property Management System",
+  "name": "Travels Puri 13",
+  "short_name": "Puri 13",
+  "description": "Best Hotel Aggregator & Travel Guide in Puri",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#4f46e5",
   "icons": [
     {
-      "src": "/icons/icon-192x192.png",
-      "sizes": "192x192",
+      "src": "/logo.png",
+      "sizes": "240x240",
       "type": "image/png"
     },
     {
-      "src": "/icons/icon-512x512.png",
-      "sizes": "512x512",
+      "src": "/logo_large.png",
+      "sizes": "840x240",
       "type": "image/png"
     }
   ]

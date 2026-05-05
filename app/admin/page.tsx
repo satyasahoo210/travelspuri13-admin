@@ -172,7 +172,7 @@ export default function AdminPage() {
               <ShieldCheck className="w-5 h-5" />
               <span className="text-xs font-bold uppercase tracking-widest text-primary/80">Global Admin</span>
             </div>
-            <h1 className="text-3xl font-heading font-black tracking-tight text-slate-900">Antigravity Control Center</h1>
+            <h1 className="text-3xl font-heading font-black tracking-tight text-slate-900">Travels Puri Admin Center</h1>
           </div>
           <Button variant="outline" className="rounded-xl border-slate-200 hover:bg-slate-50 text-slate-600" onClick={() => router.push('/dashboard')}>
             <LayoutDashboard className="w-4 h-4 mr-2" />

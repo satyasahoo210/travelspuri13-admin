@@ -10,6 +10,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -23,8 +29,14 @@ import {
   BedDouble,
   Calendar,
   CreditCard,
+  Download,
   FileText,
+  Loader2,
+  LogIn,
+  LogOut,
+  MoreHorizontal,
   Plus,
+  Printer,
   Receipt,
   Trash2,
 } from 'lucide-react'
@@ -82,7 +94,10 @@ export function BookingDetails({
   const [property, setProperty] = useState<Property | null>(null)
   const [showTax, setShowTax] = useState(true)
   const [isInvoicePreviewOpen, setIsInvoicePreviewOpen] = useState(false)
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false)
   const [gstin, setGstin] = useState('')
+  const [grNumber, setGrNumber] = useState('')
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
 
   const fetchFolioData = async () => {
     if (!leadBooking?.id) return
@@ -136,6 +151,7 @@ export function BookingDetails({
       if (folioRes.data) {
         setFolio(folioRes.data)
         setGstin(folioRes.data.Guest?.gstin || '')
+        setGrNumber((folioRes.data.Guest as any)?.grNumber || '')
       }
       if (assignmentsRes.data) setAssignments(assignmentsRes.data)
       if (servicesRes.data) setServices(servicesRes.data)
@@ -153,7 +169,9 @@ export function BookingDetails({
   const handleToggleWaiver = async () => {
     if (!folio || !leadBooking) return
     const newWaiver = !folio.waiveLastDayCharge
-    setFolio(prev => prev ? ({ ...prev, waiveLastDayCharge: newWaiver }) : null)
+    setFolio((prev) =>
+      prev ? { ...prev, waiveLastDayCharge: newWaiver } : null,
+    )
 
     const { error } = await supabase
       .from('Booking')
@@ -162,7 +180,9 @@ export function BookingDetails({
 
     if (error) {
       console.error('Error updating waiver:', error)
-      setFolio(prev => prev ? ({ ...prev, waiveLastDayCharge: !newWaiver }) : null)
+      setFolio((prev) =>
+        prev ? { ...prev, waiveLastDayCharge: !newWaiver } : null,
+      )
     }
   }
 
@@ -173,42 +193,99 @@ export function BookingDetails({
       .from('Guest')
       .update({ gstin: val } as any)
       .eq('id', folio.guestId)
-    
-    if (error) {
-      console.error('Error updating GSTIN:', error)
-    }
+
+    if (!error && onRefresh) onRefresh()
   }
 
-  const handleGenerateInvoice = async () => {
+  const handleUpdateGrNumber = async (val: string) => {
+    if (!folio?.guestId) return
+    setGrNumber(val)
+    const { error } = await supabase
+      .from('Guest')
+      .update({ grNumber: val } as any)
+      .eq('id', folio.guestId)
+    if (!error && onRefresh) onRefresh()
+  }
+
+  const handleCheckOut = async () => {
+    if (!folio) return
+    setLoading(true)
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('Booking')
+      .update({
+        status: 'CHECKED_OUT',
+        actualCheckOut: now,
+      } as any)
+      .eq('id', folio.id)
+
+    if (!error) {
+      if (onRefresh) onRefresh()
+    }
+    onOpenChange(false)
+    setLoading(false)
+  }
+
+  const handleCheckIn = async () => {
+    if (!folio) return
+    setLoading(true)
+    const { error } = await supabase
+      .from('Booking')
+      .update({
+        status: 'CHECKED_IN',
+      } as any)
+      .eq('id', folio.id)
+
+    if (!error) {
+      if (onRefresh) onRefresh()
+    }
+    setLoading(false)
+  }
+
+  const handleGenerateInvoice = async (
+    mode: 'download' | 'print' = 'download',
+  ) => {
     if (!folio || !property) return
-    const { 
-      total: finalTotal, 
-      tax: taxAmount,
-    } = calculateCurrentTotal()
-    
-    await generateInvoicePDF(folio, assignments, services, property, payments, {
-      nights: totalNights,
-      roomTotal: totalRoomCharges,
-      serviceTotal: serviceSubtotal,
-      subtotal: bookingSubtotal ?? 0,
-      discount,
-      tax: taxAmount,
-      total,
-      totalPaid,
-      balance: totalDue,
-      showTax,
-    })
+    setIsGeneratingInvoice(true)
+    try {
+      const { total: finalTotal, tax: taxAmount } = calculateCurrentTotal()
 
-    await supabase.from('Billing').upsert({
-      bookingId: folio.id,
-      tenantId: folio.tenantId,
-      totalAmount: finalTotal,
-      taxAmount: taxAmount,
-      paymentStatus: paymentStatus,
-      currency: 'INR',
-    })
+      await generateInvoicePDF(
+        folio,
+        assignments,
+        services,
+        property,
+        payments,
+        {
+          nights: totalNights,
+          roomTotal: totalRoomCharges,
+          serviceTotal: serviceSubtotal,
+          subtotal: bookingSubtotal ?? 0,
+          discount,
+          tax: taxAmount,
+          total,
+          totalPaid,
+          balance: totalDue,
+          showTax,
+        },
+        mode,
+      )
 
-    if (onRefresh) onRefresh()
+      await supabase.from('Billing').upsert({
+        bookingId: folio.id,
+        tenantId: folio.tenantId,
+        totalAmount: finalTotal,
+        taxAmount: taxAmount,
+        paymentStatus: paymentStatus,
+        currency: 'INR',
+      })
+
+      if (onRefresh) onRefresh()
+    } catch (err) {
+      console.error('Invoice generation failed:', err)
+    } finally {
+      setIsGeneratingInvoice(false)
+    }
   }
 
   useEffect(() => {
@@ -221,18 +298,26 @@ export function BookingDetails({
     s = services,
     p = property,
   ) => {
-    if (!f || !p) return { total: 0, nights: 1, roomTotal: 0, serviceTotal: 0, discount: 0, tax: 0 }
-    
+    if (!f || !p)
+      return {
+        total: 0,
+        nights: 1,
+        roomTotal: 0,
+        serviceTotal: 0,
+        discount: 0,
+        tax: 0,
+      }
+
     const checkInDate = new Date(f.checkInDate)
     const checkOutDate = new Date(f.checkOutDate)
-    
+
     // 1. Base nights = calendar days difference
     let nights = differenceInCalendarDays(checkOutDate, checkInDate)
-    
+
     // 2. If checkout time is after property's checkout time, add 1 night
     const checkOutTimeStr = format(checkOutDate, 'HH:mm:ss')
     const propCheckOutTime = p.checkOutTime || '07:00:00'
-    
+
     if (checkOutTimeStr > propCheckOutTime) {
       nights += 1
     }
@@ -246,7 +331,10 @@ export function BookingDetails({
 
     const roomSubtotal = a.reduce(
       (sum, item) =>
-        sum + (Number(item.priceOverride) || Number(item.RoomType?.defaultPrice) || 0),
+        sum +
+        (Number(item.priceOverride) ||
+          Number(item.RoomType?.defaultPrice) ||
+          0),
       0,
     )
     const totalRoomCharges = roomSubtotal * nights
@@ -260,7 +348,9 @@ export function BookingDetails({
         ? subtotal * (Number(f.discountAmount) / 100)
         : Number(f.discountAmount || 0)
 
-    const tax = showTax ? (subtotal - discountAmount) * ((p.taxPercentage || 0) / 100) : 0
+    const tax = showTax
+      ? (subtotal - discountAmount) * ((p.taxPercentage || 0) / 100)
+      : 0
     const finalTotal = subtotal - discountAmount + tax
 
     return {
@@ -310,12 +400,12 @@ export function BookingDetails({
 
     const { error } = await supabase
       .from('Booking')
-      .update({ 
+      .update({
         [field]: processedValue,
-        totalAmount: newTotal 
+        totalAmount: newTotal,
       } as any)
       .eq('id', folio.id)
-      
+
     if (!error) {
       setFolio({ ...updatedFolio, totalAmount: newTotal })
       if (onRefresh) onRefresh()
@@ -464,6 +554,7 @@ export function BookingDetails({
       } else {
         setPaymentStatus('PARTIAL')
       }
+      setIsPaymentDialogOpen(false)
       if (onRefresh) onRefresh()
     }
     setLoading(false)
@@ -512,14 +603,10 @@ export function BookingDetails({
               </div>
               <div className="text-right">
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                  Balance Due
+                  Total
                 </p>
                 <p className="text-3xl font-heading font-black tracking-tighter text-primary">
-                  ₹
-                  {(
-                    total -
-                    payments.reduce((sum, p) => sum + Number(p.amount), 0)
-                  ).toLocaleString()}
+                  ₹{total.toLocaleString()}
                 </p>
               </div>
             </div>
@@ -706,18 +793,53 @@ export function BookingDetails({
                       }
                     />
                   </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                      Check Out
+                    </p>
+                    <Input
+                      type="datetime-local"
+                      className="h-12 rounded-xl text-xs font-bold"
+                      value={format(
+                        toZonedTime(
+                          new Date(folio.checkOutDate),
+                          property?.timezone || 'UTC',
+                        ),
+                        "yyyy-MM-dd'T'HH:mm",
+                      )}
+                      onChange={(e) =>
+                        updateFolioField('checkOutDate', e.target.value)
+                      }
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                    <Receipt className="w-3 h-3" /> Guest GSTIN
-                  </p>
-                  <Input
-                    className="h-12 rounded-xl text-xs font-bold bg-slate-50 border-slate-100 uppercase"
-                    value={gstin}
-                    onChange={(e) => setGstin(e.target.value.toUpperCase())}
-                    onBlur={(e) => handleUpdateGstin(e.target.value)}
-                    placeholder="Enter GSTIN if required"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                      <Receipt className="w-3 h-3" /> Guest GSTIN
+                    </p>
+                    <Input
+                      className="h-12 rounded-xl text-xs font-bold bg-slate-50 border-slate-100 uppercase"
+                      value={gstin}
+                      onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                      onBlur={(e) => handleUpdateGstin(e.target.value)}
+                      placeholder="GSTIN if required"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                      <FileText className="w-3 h-3" /> GR Number
+                    </p>
+                    <Input
+                      className="h-12 rounded-xl text-xs font-bold bg-slate-50 border-slate-100 uppercase"
+                      value={grNumber}
+                      onChange={(e) =>
+                        setGrNumber(e.target.value.toUpperCase())
+                      }
+                      onBlur={(e) => handleUpdateGrNumber(e.target.value)}
+                      placeholder="GR Number"
+                    />
+                  </div>
                 </div>
               </section>
 
@@ -770,7 +892,8 @@ export function BookingDetails({
                             Room {a.Room?.roomNumber} Stay
                           </p>
                           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                            {totalNights} nights x ₹{(
+                            {totalNights} nights x ₹
+                            {(
                               Number(a.priceOverride) ||
                               Number(a.RoomType?.defaultPrice) ||
                               0
@@ -864,29 +987,35 @@ export function BookingDetails({
                     className="text-emerald-400"
                   />
                   <SummaryRow label="Tax Amount" value={taxAmount} />
-                  
+
                   <div className="pt-4 flex items-center justify-between border-t border-white/5 gap-4">
                     <div className="flex items-center gap-3">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         id="waive-day"
                         checked={folio?.waiveLastDayCharge || false}
                         onChange={handleToggleWaiver}
                         className="w-5 h-5 rounded-md accent-primary cursor-pointer bg-white/10 border-white/20"
                       />
-                      <label htmlFor="waive-day" className="text-white/60 text-xs font-black uppercase tracking-widest cursor-pointer hover:text-white transition-colors">
+                      <label
+                        htmlFor="waive-day"
+                        className="text-white/60 text-xs font-black uppercase tracking-widest cursor-pointer hover:text-white transition-colors"
+                      >
                         Waive Day
                       </label>
                     </div>
                     <div className="flex items-center gap-3">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         id="show-tax"
                         checked={showTax}
                         onChange={(e) => setShowTax(e.target.checked)}
                         className="w-5 h-5 rounded-md accent-primary cursor-pointer bg-white/10 border-white/20"
                       />
-                      <label htmlFor="show-tax" className="text-white/60 text-xs font-black uppercase tracking-widest cursor-pointer hover:text-white transition-colors">
+                      <label
+                        htmlFor="show-tax"
+                        className="text-white/60 text-xs font-black uppercase tracking-widest cursor-pointer hover:text-white transition-colors"
+                      >
                         Include Tax
                       </label>
                     </div>
@@ -935,16 +1064,10 @@ export function BookingDetails({
 
           {/* Footer Actions */}
           <div className="p-8 border-t border-slate-100 bg-white flex gap-4 shrink-0">
-            <Dialog open={isInvoicePreviewOpen} onOpenChange={setIsInvoicePreviewOpen}>
-              <DialogTrigger render={
-                <Button
-                  variant="outline"
-                  className="h-16 rounded-2xl border-slate-200 font-heading font-black tracking-tighter text-lg hover:bg-slate-50 transition-all" />
-                }
-              >
-                  <Receipt className="size-6 text-slate-400" />
-                  INVOICE
-              </DialogTrigger>
+            <Dialog
+              open={isInvoicePreviewOpen}
+              onOpenChange={setIsInvoicePreviewOpen}
+            >
               <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto rounded-[2rem] p-0 border-none shadow-2xl">
                 <div className="p-10 space-y-8 bg-white">
                   <div className="flex justify-between items-start">
@@ -953,74 +1076,228 @@ export function BookingDetails({
                         Invoice Preview
                       </h3>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
-                        Verify details before downloading
+                        Verify details before processing
                       </p>
                     </div>
-                    <Button 
-                      onClick={handleGenerateInvoice}
-                      className="rounded-xl font-black text-[10px] uppercase tracking-widest h-12 px-6"
-                    >
-                      Download PDF
-                    </Button>
+                    <div className="flex gap-3">
+                      <Button
+                        variant="outline"
+                        onClick={() => handleGenerateInvoice('print')}
+                        disabled={isGeneratingInvoice}
+                        className="rounded-xl font-black text-[10px] uppercase tracking-widest h-12 px-6 border-slate-200 hover:bg-slate-50"
+                      >
+                        {isGeneratingInvoice ? (
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <span>Processing...</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Printer className="w-4 h-4" />
+                            <span>Print</span>
+                          </div>
+                        )}
+                      </Button>
+                      <Button
+                        onClick={() => handleGenerateInvoice('download')}
+                        disabled={isGeneratingInvoice}
+                        className="rounded-xl font-black text-[10px] uppercase tracking-widest h-12 px-6 bg-slate-900 hover:bg-slate-800"
+                      >
+                        {isGeneratingInvoice ? (
+                          <div className="flex items-center gap-2 text-white">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <span>Generating...</span>
+                          </div>
+                        ) : (
+                          'Download PDF'
+                        )}
+                      </Button>
+                    </div>
                   </div>
+
+                  {isGeneratingInvoice && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center justify-center p-8 bg-primary/5 rounded-3xl border border-primary/10 border-dashed"
+                    >
+                      <div className="flex flex-col items-center gap-3">
+                        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                        <p className="text-sm font-bold text-primary italic">
+                          Invoice is being generated...
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-8 p-8 bg-slate-50 rounded-3xl border border-slate-100">
                     <div className="space-y-4">
                       <div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Guest</p>
-                        <p className="font-black text-slate-900">{folio.Guest?.name}</p>
-                        {gstin && <p className="text-[10px] font-bold text-primary mt-1">GSTIN: {gstin}</p>}
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                          Guest
+                        </p>
+                        <p className="font-black text-slate-900">
+                          {folio.Guest?.name}
+                        </p>
+                        {gstin && (
+                          <p className="text-[10px] font-bold text-primary mt-1">
+                            GSTIN: {gstin}
+                          </p>
+                        )}
                       </div>
                       <div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Stay</p>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                          Stay
+                        </p>
                         <p className="font-bold text-slate-600 text-sm">
-                          {format(new Date(folio.checkInDate), 'dd MMM')} - {format(new Date(folio.checkOutDate), 'dd MMM yyyy')}
+                          {format(new Date(folio.checkInDate), 'dd MMM')} -{' '}
+                          {format(new Date(folio.checkOutDate), 'dd MMM yyyy')}
                         </p>
                       </div>
                     </div>
                     <div className="space-y-2">
                       <div className="flex justify-between text-xs font-bold">
-                        <span className="text-slate-500">Accommodation ({totalNights} nights)</span>
-                        <span className="text-slate-900">₹{totalRoomCharges.toLocaleString()}</span>
+                        <span className="text-slate-500">
+                          Accommodation ({totalNights} nights)
+                        </span>
+                        <span className="text-slate-900">
+                          ₹{totalRoomCharges.toLocaleString()}
+                        </span>
                       </div>
                       <div className="flex justify-between text-xs font-bold">
-                        <span className="text-slate-500">Services & Extras</span>
-                        <span className="text-slate-900">₹{serviceSubtotal.toLocaleString()}</span>
+                        <span className="text-slate-500">
+                          Services & Extras
+                        </span>
+                        <span className="text-slate-900">
+                          ₹{serviceSubtotal.toLocaleString()}
+                        </span>
                       </div>
                       <div className="flex justify-between text-xs font-bold text-emerald-600">
                         <span>Discount</span>
                         <span>- ₹{discount.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between text-xs font-bold">
-                        <span className="text-slate-500">Tax {showTax ? `(${property?.taxPercentage}%)` : '(Excluded)'}</span>
-                        <span className="text-slate-900">₹{taxAmount.toLocaleString()}</span>
+                        <span className="text-slate-500">
+                          Tax{' '}
+                          {showTax
+                            ? `(${property?.taxPercentage}%)`
+                            : '(Excluded)'}
+                        </span>
+                        <span className="text-slate-900">
+                          ₹{taxAmount.toLocaleString()}
+                        </span>
                       </div>
                       <div className="pt-4 border-t border-slate-200 flex justify-between items-center">
-                        <span className="text-sm font-black uppercase tracking-widest text-slate-400">Total Payable</span>
-                        <span className="text-2xl font-heading font-black text-primary">₹{total.toLocaleString()}</span>
+                        <span className="text-sm font-black uppercase tracking-widest text-slate-400">
+                          Total Payable
+                        </span>
+                        <span className="text-2xl font-heading font-black text-primary">
+                          ₹{total.toLocaleString()}
+                        </span>
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-2xl border border-amber-100">
                     <AlertCircle className="w-5 h-5 text-amber-600" />
                     <p className="text-[10px] font-bold text-amber-800 leading-tight italic">
-                      This is a digital preview. The generated PDF will include full property details, payment breakup, and authorized signature blocks.
+                      This is a digital preview. The generated PDF will include
+                      full property details, payment breakup, and authorized
+                      signature blocks.
                     </p>
                   </div>
                 </div>
               </DialogContent>
             </Dialog>
-            <Dialog>
-              <DialogTrigger
-                disabled={totalDue === 0}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger
                 render={
-                  <Button className="h-16 rounded-2xl bg-primary shadow-xl shadow-primary/20 font-heading font-black tracking-tighter text-lg hover:scale-[1.01] transition-all" />
+                  <Button
+                    variant="outline"
+                    className="h-16 w-16 rounded-2xl border-2 border-slate-100 bg-slate-50 hover:bg-white hover:border-primary transition-all shrink-0"
+                  />
                 }
               >
+                <MoreHorizontal className="size-6 text-slate-400" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="w-64 rounded-2xl p-2 shadow-2xl border-slate-100"
+              >
+                <DropdownMenuItem
+                  onClick={() => setIsInvoicePreviewOpen(true)}
+                  className="rounded-xl h-12 font-bold"
+                >
+                  <Receipt className="mr-2 size-4" /> Invoice Preview
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleGenerateInvoice('print')}
+                  className="rounded-xl h-12 font-bold"
+                >
+                  <Printer className="mr-2 size-4" /> Print Invoice
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleGenerateInvoice('download')}
+                  className="rounded-xl h-12 font-bold"
+                >
+                  <Download className="mr-2 size-4" /> Download PDF
+                </DropdownMenuItem>
+                {totalDue > 0 && (
+                  <DropdownMenuItem
+                    onClick={() => setIsPaymentDialogOpen(true)}
+                    className="rounded-xl h-12 font-bold text-primary"
+                  >
+                    <CreditCard className="mr-2 size-4" /> Record Payment
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem className="rounded-xl h-12 font-bold text-red-600">
+                  <Trash2 className="mr-2 size-4" /> Cancel Booking
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {folio.status === 'CONFIRMED' ? (
+              <Button
+                onClick={handleCheckIn}
+                disabled={loading}
+                className="flex-1 h-16 rounded-2xl bg-emerald-500 shadow-xl shadow-emerald-500/20 font-heading font-black tracking-tighter text-lg hover:scale-[1.01] transition-all"
+              >
+                <LogIn className="size-6 text-white" />
+                {loading ? 'PROCESSING...' : 'CHECK IN'}
+              </Button>
+            ) : totalDue > 0 ? (
+              <Button
+                onClick={() => setIsPaymentDialogOpen(true)}
+                disabled={loading}
+                className="flex-1 h-16 rounded-2xl bg-primary shadow-xl shadow-primary/20 font-heading font-black tracking-tighter text-lg hover:scale-[1.01] transition-all"
+              >
                 <CreditCard className="size-6 text-white" />
-                <p>RECORD PAYMENT</p>
-              </DialogTrigger>
+                RECORD PAYMENT
+              </Button>
+            ) : folio.status === 'CHECKED_IN' ? (
+              <Button
+                onClick={handleCheckOut}
+                disabled={loading}
+                className="flex-1 h-16 rounded-2xl bg-amber-500 shadow-xl shadow-amber-500/20 font-heading font-black tracking-tighter text-lg hover:scale-[1.01] transition-all"
+              >
+                <LogOut className="size-6 text-white" />
+                {loading ? 'PROCESSING...' : 'CHECK OUT'}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => setIsInvoicePreviewOpen(true)}
+                className="flex-1 h-16 rounded-2xl bg-slate-900 shadow-xl shadow-slate-900/20 font-heading font-black tracking-tighter text-lg hover:scale-[1.01] transition-all"
+              >
+                <Receipt className="size-6 text-white" />
+                VIEW INVOICE
+              </Button>
+            )}
+
+            <Dialog
+              open={isPaymentDialogOpen}
+              onOpenChange={setIsPaymentDialogOpen}
+            >
               <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
                   <DialogTitle>Record Payment</DialogTitle>
@@ -1168,8 +1445,7 @@ function SelectService({
   const options = services
     .filter((s) => !existingIds.includes(s.id))
     .map((s) => ({ value: s.id, label: `${s.name} - ₹${s.price}` }))
-    console.log(options, existingIds, services);
-
+  console.log(options, existingIds, services)
 
   return (
     <div className="w-[180px]">
@@ -1205,7 +1481,7 @@ function SelectRoom({
         options={options}
         onChange={onAdd}
         placeholder="Add Room..."
-        className="h-8 text-[9px] font-black uppercase tracking-widest bg-primary/5 border-none"
+        className="text-[9px] font-black uppercase tracking-widest bg-primary/5 border-none"
       />
     </div>
   )
@@ -1221,4 +1497,5 @@ import {
 } from '@/components/ui/select'
 import { Tables } from '@/database.types'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
+import { motion } from 'framer-motion'
 

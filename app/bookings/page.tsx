@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { format } from 'date-fns'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useRouter } from 'next/navigation'
 import {
   BedDouble,
   Calendar,
@@ -19,15 +20,8 @@ import {
 import { useEffect, useState } from 'react'
 
 import { BookingDetails } from '@/components/bookings/booking-details'
-import { BookingForm } from '@/components/bookings/booking-form'
 import { useProperty } from '@/components/providers/property-provider'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tables } from '@/database.types'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/utils/supabase/client'
@@ -38,11 +32,12 @@ type Booking = Tables<'Booking'> & {
   BookingRoom: Array<{
     Room: Pick<Tables<'Room'>, 'roomNumber'> | null
   }>
+  Payment: Array<{ amount: number }>
 }
 
 export default function BookingsPage() {
+  const router = useRouter()
   const [search, setSearch] = useState('')
-  const [open, setOpen] = useState(false)
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [bookings, setBookings] = useState<Booking[] | null>(null)
@@ -58,7 +53,7 @@ export default function BookingsPage() {
     const { data, error } = await supabase
       .from('Booking')
       .select(
-        '*, Guest(name, phone), Property(name), BookingRoom(Room(roomNumber))',
+        '*, Guest(name, phone), Property(name), BookingRoom(Room(roomNumber)), Payment(amount)',
       )
       .eq('propertyId', currentProperty.id)
       .order('checkInDate', { ascending: false })
@@ -100,6 +95,18 @@ export default function BookingsPage() {
       ),
   )
 
+  const upcomingBookings = filteredBookings?.filter((b) => 
+    ['CONFIRMED', 'CHECKED_IN', 'PENDING'].includes(b.status || '')
+  )
+
+  const pastBookings = filteredBookings?.filter((b) => 
+    ['CHECKED_OUT', 'NOSHOW'].includes(b.status || '')
+  )
+
+  const cancelledBookings = filteredBookings?.filter((b) => 
+    b.status === 'CANCELLED'
+  )
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -112,36 +119,13 @@ export default function BookingsPage() {
           </p>
         </div>
 
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger
-            render={
-              <Button className="rounded-2xl h-14 px-8 bg-primary shadow-xl shadow-primary/20 hover:scale-[1.02] transition-all font-heading font-black tracking-tighter text-lg" />
-            }
-          >
-            <Plus className="mr-3 h-6 w-6" />
-            NEW BOOKING
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px] rounded-[2.5rem] border-none shadow-2xl p-0 overflow-hidden">
-            <div className="bg-primary p-8 text-white">
-              <DialogHeader>
-                <DialogTitle className="text-3xl font-heading font-black tracking-tighter">
-                  Register Stay
-                </DialogTitle>
-                <p className="text-white/70 font-bold uppercase tracking-widest text-[10px]">
-                  New Reservation Details
-                </p>
-              </DialogHeader>
-            </div>
-            <div className="p-8">
-              <BookingForm
-                onSuccess={() => {
-                  setOpen(false)
-                  fetchBookings()
-                }}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Button 
+          onClick={() => router.push('/bookings/new')}
+          className="rounded-2xl h-14 px-8 bg-primary shadow-xl shadow-primary/20 hover:scale-[1.02] transition-all font-heading font-black tracking-tighter text-lg"
+        >
+          <Plus className="mr-3 h-6 w-6" />
+          NEW BOOKING
+        </Button>
       </header>
 
       <div className="flex gap-4">
@@ -163,121 +147,52 @@ export default function BookingsPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4">
-        <AnimatePresence mode="wait">
-          {loading ? (
-            <div className="py-20 text-center">
-              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">
-                Loading Reservations...
-              </p>
-            </div>
-          ) : (
-            filteredBookings?.map((booking, i) => (
-              <motion.div
-                key={booking.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                onClick={() => handleBookingClick(booking)}
-              >
-                <Card className="border-slate-200 hover:border-primary/30 cursor-pointer overflow-hidden group transition-all hover:shadow-xl hover:shadow-slate-200/50 rounded-3xl bg-white shadow-sm">
-                  <CardContent className="p-6">
-                    <div className="flex flex-col md:flex-row md:items-center gap-6">
-                      <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 group-hover:bg-primary/5 group-hover:border-primary/10 transition-colors">
-                        <User className="h-6 w-6 text-slate-400 group-hover:text-primary" />
-                      </div>
+      <Tabs defaultValue="upcoming" className="w-full">
+        <TabsList className="bg-slate-100 p-1 rounded-2xl h-14 mb-8">
+          <TabsTrigger value="upcoming" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
+            Upcoming ({upcomingBookings?.length || 0})
+          </TabsTrigger>
+          <TabsTrigger value="past" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
+            Past ({pastBookings?.length || 0})
+          </TabsTrigger>
+          <TabsTrigger value="cancelled" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
+            Cancelled ({cancelledBookings?.length || 0})
+          </TabsTrigger>
+        </TabsList>
 
-                      <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-6 items-center">
-                        <div className="space-y-1">
-                          <p className="text-xl font-heading font-black tracking-tighter text-slate-900">
-                            {booking.Guest?.name || 'Guest Not Found'}
-                          </p>
-                          <div className="flex items-center gap-2 text-slate-400">
-                            <MapPin className="w-3 h-3" />
-                            <span className="text-[10px] font-bold tracking-tight uppercase">
-                              {booking.Property?.name}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="w-4 h-4 text-primary" />
-                            <p className="text-sm font-black tracking-tight text-slate-900">
-                              {format(new Date(booking.checkInDate), 'MMM d')} -{' '}
-                              {format(new Date(booking.checkOutDate), 'MMM d')}
-                            </p>
-                          </div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-6">
-                            {format(new Date(booking.checkOutDate), 'yyyy')}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2">
-                            <BedDouble className="w-4 h-4 text-slate-400" />
-                            <span className="text-sm font-black text-slate-900">
-                              Room{' '}
-                              {booking.BookingRoom.map(
-                                (r) => r.Room?.roomNumber,
-                              ).join(', ') || 'N/A'}
-                            </span>
-                          </div>
-                          <Badge
-                            className={cn(
-                              'w-fit font-black text-[9px] uppercase tracking-widest border-none px-3',
-                              booking.status === 'CONFIRMED'
-                                  ? 'bg-emerald-50 text-emerald-600'
-                                  : booking.status === 'CHECKED_IN'
-                                    ? 'bg-primary/5 text-primary'
-                                    : 'bg-slate-100 text-slate-400',
-                            )}
-                          >
-                            {booking.status}
-                          </Badge>
-                        </div>
-
-                        <div className="flex md:justify-end">
-                          <div className="text-right">
-                            <p className="text-xs font-black text-slate-400 uppercase tracking-tighter mb-1">
-                              Booking Total
-                            </p>
-                            <p className="text-2xl font-heading font-black tracking-tighter text-slate-900">
-                              ₹{booking.totalAmount?.toLocaleString() || '0'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))
-          )}
-        </AnimatePresence>
-
-        {!loading && filteredBookings?.length === 0 && (
-          <div className="text-center py-32 bg-white rounded-[3rem] border border-slate-200 shadow-sm">
-            <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
-              <Calendar className="h-10 w-10 text-slate-200" />
-            </div>
-            <h3 className="text-3xl font-heading font-black tracking-tighter text-slate-900 mb-2">
-              No bookings found
-            </h3>
-            <p className="text-slate-400 font-bold mb-8">
-              Ready to welcome your next guest?
-            </p>
-            <Button
-              onClick={() => setOpen(true)}
-              variant="outline"
-              className="h-14 px-8 rounded-2xl border-slate-200 font-black tracking-tighter"
-            >
-              GENERATE NEW RESERVATION
-            </Button>
+        <TabsContent value="upcoming" className="mt-0">
+          <div className="grid gap-4">
+            <BookingList 
+              bookings={upcomingBookings} 
+              loading={loading} 
+              onBookingClick={handleBookingClick}
+              onNewBooking={() => router.push('/bookings/new')}
+            />
           </div>
-        )}
-      </div>
+        </TabsContent>
+
+        <TabsContent value="past" className="mt-0">
+          <div className="grid gap-4">
+            <BookingList 
+              bookings={pastBookings} 
+              loading={loading} 
+              onBookingClick={handleBookingClick}
+              onNewBooking={() => router.push('/bookings/new')}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="cancelled" className="mt-0">
+          <div className="grid gap-4">
+            <BookingList 
+              bookings={cancelledBookings} 
+              loading={loading} 
+              onBookingClick={handleBookingClick}
+              onNewBooking={() => router.push('/bookings/new')}
+            />
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {selectedBooking && (
         <BookingDetails
@@ -286,6 +201,138 @@ export default function BookingsPage() {
           booking={selectedBooking}
           onRefresh={fetchBookings}
         />
+      )}
+    </div>
+  )
+}
+
+function BookingList({ 
+  bookings, 
+  loading, 
+  onBookingClick,
+  onNewBooking 
+}: { 
+  bookings: any[] | undefined, 
+  loading: boolean, 
+  onBookingClick: (b: any) => void,
+  onNewBooking: () => void
+}) {
+  return (
+    <div className="grid gap-4">
+      <AnimatePresence mode="wait">
+        {loading ? (
+          <div className="py-20 text-center">
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+              Loading Reservations...
+            </p>
+          </div>
+        ) : (
+          bookings?.map((booking, i) => (
+            <motion.div
+              key={booking.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              onClick={() => onBookingClick(booking)}
+            >
+              <Card className="border-slate-200 hover:border-primary/30 cursor-pointer overflow-hidden group transition-all hover:shadow-xl hover:shadow-slate-200/50 rounded-3xl bg-white shadow-sm">
+                <CardContent className="p-6">
+                  <div className="flex flex-col md:flex-row md:items-center gap-6">
+                    <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 group-hover:bg-primary/5 group-hover:border-primary/10 transition-colors">
+                      <User className="h-6 w-6 text-slate-400 group-hover:text-primary" />
+                    </div>
+
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-6 items-center">
+                      <div className="space-y-1">
+                        <p className="text-xl font-heading font-black tracking-tighter text-slate-900">
+                          {booking.Guest?.name || 'Guest Not Found'}
+                        </p>
+                        <div className="flex items-center gap-2 text-slate-400">
+                          <MapPin className="w-3 h-3" />
+                          <span className="text-[10px] font-bold tracking-tight uppercase">
+                            {booking.Property?.name}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-primary" />
+                          <p className="text-sm font-black tracking-tight text-slate-900">
+                            {format(new Date(booking.checkInDate), 'MMM d')} -{' '}
+                            {format(new Date(booking.checkOutDate), 'MMM d')}
+                          </p>
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-6">
+                          {format(new Date(booking.checkOutDate), 'yyyy')}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          <BedDouble className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm font-black text-slate-900">
+                            Room{' '}
+                            {booking.BookingRoom.map(
+                              (r: any) => r.Room?.roomNumber,
+                            ).join(', ') || 'N/A'}
+                          </span>
+                        </div>
+                        <Badge
+                          className={cn(
+                            'w-fit font-black text-[9px] uppercase tracking-widest border-none px-3',
+                            booking.status === 'CONFIRMED'
+                                ? 'bg-emerald-50 text-emerald-600'
+                                : booking.status === 'CHECKED_IN'
+                                  ? 'bg-primary/5 text-primary'
+                                  : booking.status === 'CHECKED_OUT'
+                                    ? 'bg-blue-50 text-blue-600'
+                                    : 'bg-slate-100 text-slate-400',
+                          )}
+                        >
+                          {booking.status}
+                        </Badge>
+                      </div>
+
+                      <div className="flex md:justify-end">
+                        <div className="text-right">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-tighter mb-1">
+                            Total Due
+                          </p>
+                          <p className="text-2xl font-heading font-black tracking-tighter text-slate-900">
+                            ₹{((booking.totalAmount || 0) - (booking.Payment?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0)).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))
+        )}
+      </AnimatePresence>
+
+      {!loading && (!bookings || bookings.length === 0) && (
+        <div className="text-center py-32 bg-white rounded-[3rem] border border-slate-200 shadow-sm">
+          <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+            <Calendar className="h-10 w-10 text-slate-200" />
+          </div>
+          <h3 className="text-3xl font-heading font-black tracking-tighter text-slate-900 mb-2">
+            No bookings found
+          </h3>
+          <p className="text-slate-400 font-bold mb-8">
+            Ready to welcome your next guest?
+          </p>
+          <Button
+            onClick={onNewBooking}
+            variant="outline"
+            className="h-14 px-8 rounded-2xl border-slate-200 font-black tracking-tighter"
+          >
+            GENERATE NEW RESERVATION
+          </Button>
+        </div>
       )}
     </div>
   )

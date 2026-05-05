@@ -1,12 +1,12 @@
+import { Providers } from "@/app/providers";
 import { BottomNav, Sidebar } from "@/components/layout/navigation";
-import { SyncProvider } from "@/components/providers/sync-provider";
-import { SyncIndicator } from "@/components/ui/sync-indicator";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { PropertyProvider } from "@/components/providers/property-provider";
+import { SyncProvider } from "@/components/providers/sync-provider";
+import { SyncIndicator } from "@/components/ui/sync-indicator";
 import type { Metadata } from "next";
 import { Inter, Outfit } from "next/font/google";
 import "./globals.css";
-import { Providers } from "@/app/providers";
 
 const sans = Inter({
   variable: "--font-sans",
@@ -19,8 +19,8 @@ const heading = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Antigravity PMS | Modern Hotel Management",
-  description: "Minimalist, offline-first Property Management System",
+  title: "Travels Puri 13 | Modern Hotel Management",
+  description: "Best Hotel Aggregator & Travel Guide in Puri",
   manifest: "/manifest.json",
 };
 

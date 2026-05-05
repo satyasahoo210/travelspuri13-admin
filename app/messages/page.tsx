@@ -44,7 +44,7 @@ export default function MessagesPage() {
   // Mock messages for UI demo
   const [messages, setMessages] = useState([
     { id: 1, guestId: 'g1', text: 'Hello, what is the WiFi password?', sender: 'guest', time: '10:15 AM' },
-    { id: 2, guestId: 'g1', text: 'Welcome! It is "antigravity2026". Enjoy your stay!', sender: 'staff', time: '10:16 AM' },
+    { id: 2, guestId: 'g1', text: 'Welcome! It is "travelspuri2026". Enjoy your stay!', sender: 'staff', time: '10:16 AM' },
     { id: 3, guestId: 'g1', text: 'Thank you! Also, can I get extra towels?', sender: 'guest', time: '10:20 AM' },
   ]);
 

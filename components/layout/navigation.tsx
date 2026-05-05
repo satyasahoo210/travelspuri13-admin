@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/components/providers/auth-provider'
 import { cn } from '@/lib/utils'
+import Logo from '@/public/logo_large.svg'
 import {
   BarChart3,
   BedDouble,
@@ -49,9 +50,9 @@ export function Sidebar() {
   return (
     <div className="hidden md:flex flex-col w-64 border-r bg-white h-screen sticky top-0 shadow-sm transition-all duration-300">
       <div className="p-6 space-y-6">
-        <h1 className="text-xl font-heading font-black tracking-tighter text-primary italic">
-          ANTIGRAVITY <span className="text-slate-400 not-italic">PMS</span>
-        </h1>
+        <Link href="/dashboard" className="block">
+          <Logo className="w-full" />
+        </Link>
         <PropertySwitcher />
       </div>
       <nav className="flex-1 px-4 space-y-1 overflow-y-auto scrollbar-none">

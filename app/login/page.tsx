@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { createClient } from '@/lib/utils/supabase/client'
+import Logo from '@/public/logo_large.svg'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertCircle, Hotel, Loader2, Sparkles } from 'lucide-react'
 import { useState } from 'react'
@@ -65,15 +66,13 @@ export default function LoginPage() {
         className="w-full max-w-md z-10"
       >
         <div className="flex justify-center mb-8">
-          <div className="bg-primary/5 p-4 rounded-3xl backdrop-blur-sm border border-primary/10">
-            <Hotel className="h-10 w-10 text-primary" />
-          </div>
+          <Logo className="w-auto" />
         </div>
 
         <Card className="premium-card backdrop-blur-xl bg-white/80 border-white/50 shadow-2xl overflow-hidden">
           <CardHeader className="space-y-1 text-center pb-8 border-b border-border/50">
             <CardTitle className="text-3xl font-heading font-extrabold tracking-tight">
-              Antigravity PMS
+              Travels Puri 13
             </CardTitle>
             <CardDescription className="text-muted-foreground flex items-center justify-center gap-2">
               <Sparkles className="h-3.5 w-3.5 text-primary" />

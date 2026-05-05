@@ -564,3 +564,7 @@ CREATE POLICY "Authenticated Upload Guests" ON storage.objects FOR INSERT WITH C
 CREATE POLICY "Authenticated Update Guests" ON storage.objects FOR UPDATE USING (bucket_id = 'guests' AND auth.role() = 'authenticated');
 CREATE POLICY "Authenticated Delete Guests" ON storage.objects FOR DELETE USING (bucket_id = 'guests' AND auth.role() = 'authenticated');
 
+
+-- Migration for enhancements (May 2026)
+ALTER TABLE "Guest" ADD COLUMN IF NOT EXISTS "grNumber" TEXT;
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "actualCheckOut" TIMESTAMPTZ;
