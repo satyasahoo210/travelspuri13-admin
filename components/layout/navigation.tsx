@@ -25,7 +25,7 @@ const baseNavItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, enabled: true },
   { label: 'Calendar', href: '/calendar', icon: CalendarRange, enabled: true },
   { label: 'Bookings', href: '/bookings', icon: Users, enabled: true },
-  { label: 'Inventory', href: '/inventory', icon: BedDouble, enabled: false},
+  { label: 'Inventory', href: '/inventory', icon: BedDouble, enabled: true},
   { label: 'Housekeeping', href: '/housekeeping', icon: RefreshCcw, enabled: false },
   { label: 'Rates', href: '/rates', icon: TrendingUp, enabled: false },
   { label: 'Reports', href: '/reports', icon: BarChart3, enabled: false },

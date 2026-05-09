@@ -8,18 +8,28 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { db, Room, RoomType } from '@/lib/db/dexie';
-import { SyncManager } from '@/lib/sync/sync-manager';
+import { Tables } from '@/database.types';
+import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/utils/supabase/client';
 import { addDays, format, isWithinInterval, startOfDay } from 'date-fns';
 import { motion } from 'framer-motion';
 import { BedDouble, Loader2, Plus, Save, TrendingUp, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+type RoomType = Tables<'RoomType'>;
+type Room = Tables<'Room'> & {
+  RoomType: Tables<'RoomType'>;
+};
+type Booking = Tables<'Booking'> & {
+  BookingRoom: Tables<'BookingRoom'>[];
+};
+
 export default function InventoryPage() {
   const { currentProperty } = useProperty();
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [bookings, setBookings] = useState<any[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const supabase = createClient();
   const [isLoading, setIsLoading] = useState(true);
   
   // Form State
@@ -28,20 +38,29 @@ export default function InventoryPage() {
   const [formData, setFormData] = useState({
     name: '',
     capacity: 2,
-    baseRate: 0,
+    defaultPrice: 0,
     description: ''
   });
 
   const loadData = async () => {
     if (!currentProperty) return;
-    const rt = await db.roomTypes.where('propertyId').equals(currentProperty.id).toArray();
-    const r = await db.rooms.toArray();
-    const b = await db.bookings.where('propertyId').equals(currentProperty.id).toArray();
+    setIsLoading(true);
     
-    setRoomTypes(rt);
-    setRooms(r);
-    setBookings(b);
-    setIsLoading(false);
+    try {
+      const [rtRes, rRes, bRes] = await Promise.all([
+        supabase.from('RoomType').select('*').eq('propertyId', currentProperty.id),
+        supabase.from('Room').select('*, RoomType!inner(*)').eq('RoomType.propertyId', currentProperty.id),
+        supabase.from('Booking').select('*, BookingRoom(*, Room(*))').eq('propertyId', currentProperty.id).neq('status', 'CANCELLED')
+      ]);
+
+      if (rtRes.data) setRoomTypes(rtRes.data as RoomType[]);
+      if (rRes.data) setRooms(rRes.data as Room[]);
+      if (bRes.data) setBookings(bRes.data);
+    } catch (error) {
+      console.error('Error loading inventory data:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -54,37 +73,18 @@ export default function InventoryPage() {
     
     setIsSubmitting(true);
     try {
-      const newType: RoomType = {
-        id: crypto.randomUUID(),
+      const { error } = await supabase.from('RoomType').insert({
         propertyId: currentProperty.id,
         name: formData.name,
         capacity: formData.capacity,
-        baseRate: formData.baseRate,
-        description: formData.description,
-        updatedAt: Date.now()
-      };
-
-      // 1. Save to local Dexie
-      await db.roomTypes.add(newType);
-
-      // 2. Add to Sync Queue
-      await db.syncQueue.add({
-        entity: 'roomTypes',
-        entityId: newType.id,
-        action: 'create',
-        data: newType,
-        timestamp: Date.now()
+        defaultPrice: formData.defaultPrice,
       });
 
-      // 3. Refresh local UI
+      if (error) throw error;
+
       await loadData();
-      
-      // 4. Reset & Close
-      setFormData({ name: '', capacity: 2, baseRate: 0, description: '' });
+      setFormData({ name: '', capacity: 2, defaultPrice: 0, description: '' });
       setIsAddOpen(false);
-      
-      // 5. Trigger sync in background
-      SyncManager.syncAll();
     } catch (error) {
       console.error('Failed to add room type:', error);
     } finally {
@@ -96,14 +96,22 @@ export default function InventoryPage() {
 
   const getAvailability = (roomTypeId: string, date: Date) => {
     const totalRooms = rooms.filter(r => r.roomTypeId === roomTypeId).length;
-    const occupiedOnDay = bookings.filter(b => {
-      return b.roomTypeId === roomTypeId && 
-             b.status !== 'CANCELLED' &&
-             isWithinInterval(startOfDay(date), {
-               start: startOfDay(new Date(b.checkInDate)),
-               end: startOfDay(addDays(new Date(b.checkOutDate), -1))
-             });
-    }).length;
+    let occupiedOnDay = 0;
+
+    bookings.forEach(b => {
+      const isOccupied = isWithinInterval(startOfDay(date), {
+        start: startOfDay(new Date(b.checkInDate)),
+        end: startOfDay(addDays(new Date(b.checkOutDate), -1))
+      });
+
+      if (isOccupied) {
+        // Count how many rooms of this type are in this booking
+        const roomsOfTypeInBooking = (b.BookingRoom || []).filter((br: any) => 
+          br.Room?.roomTypeId === roomTypeId
+        ).length;
+        occupiedOnDay += roomsOfTypeInBooking;
+      }
+    });
 
     return totalRooms - occupiedOnDay;
   };
@@ -162,8 +170,8 @@ export default function InventoryPage() {
                       type="number" 
                       min="0"
                       required
-                      value={formData.baseRate}
-                      onChange={e => setFormData({...formData, baseRate: parseFloat(e.target.value)})}
+                      value={formData.defaultPrice}
+                      onChange={e => setFormData({...formData, defaultPrice: parseFloat(e.target.value)})}
                     />
                   </div>
                 </div>
@@ -201,11 +209,6 @@ export default function InventoryPage() {
                 <CardTitle>14-Day Availability</CardTitle>
                 <CardDescription>Real-time room blocks by category</CardDescription>
               </div>
-              <div className="flex gap-2">
-                <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20">
-                  High Demand Likely
-                </Badge>
-              </div>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -226,7 +229,7 @@ export default function InventoryPage() {
                       <tr key={type.id} className="hover:bg-muted/30 transition-colors">
                         <td className="p-3 border-b">
                           <div className="font-bold text-sm">{type.name}</div>
-                          <div className="text-[10px] text-muted-foreground">Base: ₹{type.baseRate.toLocaleString()}</div>
+                          <div className="text-[10px] text-muted-foreground">Base: ₹{Number(type.defaultPrice).toLocaleString()}</div>
                         </td>
                         {days.map(day => {
                           const avail = getAvailability(type.id, day);
@@ -271,10 +274,10 @@ export default function InventoryPage() {
                       <div className="p-2 rounded-lg bg-primary/10 text-primary">
                         <BedDouble className="h-5 w-5" />
                       </div>
-                      <Badge variant="secondary">₹{type.baseRate}/night</Badge>
+                      <Badge variant="secondary">₹{Number(type.defaultPrice)}/night</Badge>
                     </div>
                     <CardTitle className="mt-4">{type.name}</CardTitle>
-                    <CardDescription>{type.description || 'Standard luxury room'}</CardDescription>
+                    <CardDescription>{(type as any).description || 'Standard luxury room'}</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -293,11 +296,13 @@ export default function InventoryPage() {
                         <Label htmlFor={`rate-${type.id}`} className="text-[10px] uppercase font-bold text-muted-foreground">Adjust Base Rate</Label>
                         <Input 
                           id={`rate-${type.id}`}
-                          defaultValue={type.baseRate}
+                          defaultValue={Number(type.defaultPrice)}
                           className="h-8 text-sm"
+                          readOnly
+                          disabled
                         />
                       </div>
-                      <Button variant="outline" size="sm" className="w-full text-xs">Update Details</Button>
+                      {/* <Button variant="outline" size="sm" className="w-full text-xs">Update Details</Button> */}
                     </div>
                   </CardContent>
                 </Card>
@@ -308,8 +313,4 @@ export default function InventoryPage() {
       </Tabs>
     </div>
   );
-}
-
-function cn(...classes: any[]) {
-  return classes.filter(Boolean).join(' ');
 }
