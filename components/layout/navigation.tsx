@@ -30,7 +30,7 @@ const baseNavItems = [
   { label: 'Rates', href: '/rates', icon: TrendingUp, enabled: false },
   { label: 'Reports', href: '/reports', icon: BarChart3, enabled: false },
   { label: 'Messages', href: '/messages', icon: MessageSquare, enabled: false },
-  { label: 'Settings', href: '/settings', icon: CreditCard, enabled: false },
+  { label: 'Settings', href: '/settings', icon: CreditCard, enabled: true },
 ]
 
 export function Sidebar() {

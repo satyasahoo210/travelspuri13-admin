@@ -5,7 +5,18 @@ import { Tables } from '@/database.types';
 import { createClient } from '@/lib/utils/supabase/client';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-type Property = Pick<Tables<'Property'>, 'id' | 'name' | 'timezone' | 'taxPercentage' | 'checkOutTime'>
+type Property = Tables<'Property'> & {
+  settings: {
+    defaultTaxEnabled: boolean;
+    taxAmount?: number;
+    checkinTime: string;
+    checkoutTime: string;
+    gstin?: string;
+    pan?: string;
+    fssai?: string;
+    [key: string]: any;
+  } | null;
+}
 
 interface PropertyContextType {
   currentProperty: Property | null;
@@ -34,16 +45,22 @@ export function PropertyProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       const { data, error } = await supabase
         .from('Property')
-        .select('id, name, timezone, checkOutTime, taxPercentage')
+        .select('*')
         .eq('tenantId', user.tenantId)
         .order('name');
 
       if (!error && data) {
-        setProperties(data);
+        // Cast settings to expected structure
+        const formattedData = data.map(p => ({
+          ...p,
+          settings: p.settings as Property['settings']
+        }));
+
+        setProperties(formattedData);
         
         // Restore selected property or default to first
         const savedId = localStorage.getItem('pms_property_id');
-        const property = data.find(p => p.id === savedId) || data[0];
+        const property = formattedData.find(p => p.id === savedId) || formattedData[0];
         
         if (property) {
           setCurrentProperty(property);

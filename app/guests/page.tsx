@@ -1,86 +1,168 @@
 'use client';
 
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db/dexie';
-import { Card, CardContent } from "@/components/ui/card";
+import { useProperty } from '@/components/providers/property-provider';
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, User, Phone, Mail, History } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { motion, AnimatePresence } from 'framer-motion';
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tables } from '@/database.types';
+import { createClient } from '@/lib/utils/supabase/client';
+import { AnimatePresence, motion } from 'framer-motion';
+import { History, Mail, Phone, Plus, Search, User } from "lucide-react";
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+
+type Guest = Tables<'Guest'> & {
+  _count?: {
+    Booking: number;
+  };
+}
 
 export default function GuestsPage() {
-  const guests = useLiveQuery(() => db.guests.toArray(), []);
+  const router = useRouter();
+  const { currentProperty } = useProperty();
+  const [search, setSearch] = useState('');
+  const [guests, setGuests] = useState<Guest[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const supabase = createClient();
+
+  useEffect(() => {
+    const fetchGuests = async () => {
+      if (!currentProperty) return;
+      setLoading(true);
+      
+      const { data, error } = await supabase
+        .from('Guest')
+        .select('*, Booking(count)')
+        .eq('tenantId', currentProperty.tenantId)
+        .order('name');
+
+      if (error) {
+        console.error('Error fetching guests:', error);
+      } else {
+        // Map the count from the join
+        const mappedData = data.map((g: any) => ({
+          ...g,
+          _count: { Booking: g.Booking?.[0]?.count || 0 }
+        }));
+        setGuests(mappedData);
+      }
+      setLoading(false);
+    };
+
+    fetchGuests();
+  }, [currentProperty, supabase]);
+
+  const filteredGuests = guests?.filter(g => 
+    g.name.toLowerCase().includes(search.toLowerCase()) ||
+    g.phone?.includes(search) ||
+    g.email?.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h2 className="text-3xl font-heading font-bold tracking-tight">Guests</h2>
-          <p className="text-muted-foreground">Detailed profiles and stay history.</p>
+          <h1 className="text-5xl font-heading font-black tracking-tighter text-slate-900 leading-none mb-2">
+            Guests
+          </h1>
+          <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
+            Guest CRM • Relationship Management
+          </p>
         </div>
-        <Button className="rounded-full shadow-lg">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Guest
+        <Button className="rounded-2xl h-14 px-8 bg-primary shadow-xl shadow-primary/20 hover:scale-[1.02] transition-all font-heading font-black tracking-tighter text-lg">
+          <Plus className="mr-3 h-6 w-6" />
+          ADD GUEST
         </Button>
       </header>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <div className="relative group">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-focus-within:text-primary transition-colors" />
         <Input 
           placeholder="Search by name, email or phone..." 
-          className="pl-10 bg-card premium-card"
+          className="pl-12 h-14 bg-white border-slate-200 rounded-2xl shadow-sm focus:ring-4 focus:ring-primary/10 transition-all font-bold"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {guests?.map((guest, i) => (
-          <motion.div
-            key={guest.id}
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.05 }}
-          >
-            <Card className="premium-card group overflow-hidden">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-12 h-12 rounded-full bg-primary/5 flex items-center justify-center">
-                    <User className="h-6 w-6 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-lg leading-none">{guest.name}</h3>
-                    <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                      <History className="h-3 w-3" />
-                      3 previous stays
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    <Phone className="h-4 w-4" />
-                    {guest.phone || 'N/A'}
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    <Mail className="h-4 w-4" />
-                    {guest.email || 'N/A'}
-                  </div>
-                </div>
+        <AnimatePresence mode="wait">
+          {loading ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-48 rounded-[2.5rem]" />
+            ))
+          ) : (
+            filteredGuests?.map((guest, i) => (
+              <motion.div
+                key={guest.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                onClick={() => router.push(`/guests/${guest.id}`)}
+                className="cursor-pointer"
+              >
+                <Card className="rounded-[2rem] border-slate-200 hover:border-primary/30 overflow-hidden group transition-all hover:shadow-xl hover:shadow-slate-200/50 bg-white shadow-sm">
+                  <CardContent className="p-8">
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 group-hover:bg-primary/5 group-hover:border-primary/10 transition-colors">
+                        <User className="h-6 w-6 text-slate-400 group-hover:text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-heading font-black text-xl tracking-tighter text-slate-900 truncate">
+                          {guest.name}
+                        </h3>
+                        <div className="flex items-center gap-1 mt-1">
+                          <Badge variant="secondary" className="bg-emerald-50 text-emerald-600 border-none font-black text-[8px] uppercase tracking-widest px-2">
+                            {guest._count?.Booking || 0} Visits
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
+                        <Phone className="h-4 w-4 text-slate-300" />
+                        {guest.phone || 'No phone'}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
+                        <Mail className="h-4 w-4 text-slate-300" />
+                        <span className="truncate">{guest.email || 'No email'}</span>
+                      </div>
+                    </div>
 
-                <div className="mt-6 pt-6 border-t flex justify-between items-center">
-                  <Button variant="ghost" size="sm" className="text-xs h-8">View History</Button>
-                  <Button variant="outline" size="sm" className="text-xs h-8">Edit Profile</Button>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
+                    <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
+                      <Button variant="ghost" size="sm" className="text-[10px] font-black uppercase tracking-widest h-8 rounded-xl hover:bg-primary/5 hover:text-primary">
+                        <History className="h-3 w-3 mr-2" />
+                        View Profile
+                      </Button>
+                      <Button variant="outline" size="sm" className="text-[10px] font-black uppercase tracking-widest h-8 rounded-xl border-slate-200">
+                        Edit
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))
+          )}
+        </AnimatePresence>
       </div>
 
-      {guests?.length === 0 && (
-        <div className="text-center py-20 bg-muted/30 rounded-2xl border-2 border-dashed border-muted/50">
-          <User className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-          <h3 className="text-lg font-medium">No guests found</h3>
-          <p className="text-muted-foreground mb-6">Import your guest database or add manually.</p>
+      {!loading && filteredGuests?.length === 0 && (
+        <div className="text-center py-32 bg-white rounded-[3rem] border border-slate-200 shadow-sm">
+          <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+            <User className="h-10 w-10 text-slate-200" />
+          </div>
+          <h3 className="text-3xl font-heading font-black tracking-tighter text-slate-900 mb-2">
+            No guests found
+          </h3>
+          <p className="text-slate-400 font-bold mb-8">
+            Start building your guest relationships today.
+          </p>
+          <Button className="h-14 px-8 rounded-2xl font-black tracking-tighter">
+            ADD YOUR FIRST GUEST
+          </Button>
         </div>
       )}
     </div>

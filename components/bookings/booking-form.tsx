@@ -97,7 +97,10 @@ export function BookingForm({
       
       // 2. Time-based logic
       const checkOutTimeStr = format(end, 'HH:mm:ss')
-      const propCheckOutTime = currentProperty.checkOutTime || '07:00:00'
+      const propCheckOutTime = currentProperty.settings?.checkoutTime 
+        ? `${currentProperty.settings.checkoutTime}:00`
+        : (currentProperty.checkOutTime || '07:00:00')
+        
       if (checkOutTimeStr > propCheckOutTime) {
         nights += 1
       }
@@ -115,7 +118,14 @@ export function BookingForm({
         : (Number(selectedRoom?.RoomType?.defaultPrice) || 0)
       
       const subtotal = rate * nights
-      const taxVal = subtotal * ((currentProperty.taxPercentage || 0) / 100)
+      
+      // Calculate tax based on property settings
+      const taxEnabled = currentProperty.settings?.defaultTaxEnabled !== false // Defaults to true
+      const taxRate = currentProperty.settings?.taxAmount ?? currentProperty.taxPercentage ?? 0
+      const taxVal = taxEnabled 
+        ? subtotal * (taxRate / 100)
+        : 0
+        
       const totalAmount = subtotal + taxVal
       
       setFormData(prev => ({ ...prev, amount: totalAmount.toFixed(2) }))

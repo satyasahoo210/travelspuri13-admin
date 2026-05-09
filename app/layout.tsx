@@ -22,6 +22,9 @@ export const metadata: Metadata = {
   title: "Travels Puri 13 | Modern Hotel Management",
   description: "Best Hotel Aggregator & Travel Guide in Puri",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/logo.svg",
+  },
 };
 
 export default function RootLayout({

@@ -40,6 +40,7 @@ import {
   Receipt,
   Trash2,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 interface BookingDetailsProps {
@@ -70,7 +71,18 @@ type Room = Tables<'Room'> & {
 }
 
 type Service = Tables<'Service'>
-type Property = Tables<'Property'>
+type Property = Tables<'Property'> & {
+  settings: {
+    defaultTaxEnabled: boolean;
+    taxAmount?: number;
+    checkinTime: string;
+    checkoutTime: string;
+    gstin?: string;
+    pan?: string;
+    fssai?: string;
+    [key: string]: any;
+  } | null;
+}
 type Payment = Tables<'Payment'>
 type PaymentStatus = Tables<'Payment'>['status']
 
@@ -80,6 +92,7 @@ export function BookingDetails({
   onOpenChange,
   onRefresh,
 }: BookingDetailsProps) {
+  const router = useRouter()
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('details')
@@ -157,7 +170,12 @@ export function BookingDetails({
       if (servicesRes.data) setServices(servicesRes.data)
       if (allServicesRes.data) setAvailableServices(allServicesRes.data)
       if (allRoomsRes.data) setAvailableRooms(allRoomsRes.data)
-      if (propRes.data) setProperty(propRes.data)
+      if (propRes.data) {
+        const propertyData = propRes.data as Property
+        setProperty(propertyData)
+        const settings = propertyData.settings
+        setShowTax(settings?.defaultTaxEnabled !== false)
+      }
       if (payRes.data) setPayments(payRes.data)
     } catch (err) {
       console.error('Error fetching folio:', err)
@@ -316,7 +334,9 @@ export function BookingDetails({
 
     // 2. If checkout time is after property's checkout time, add 1 night
     const checkOutTimeStr = format(checkOutDate, 'HH:mm:ss')
-    const propCheckOutTime = p.checkOutTime || '07:00:00'
+    const propCheckOutTime = p.settings?.checkoutTime 
+      ? `${p.settings.checkoutTime}:00`
+      : (p.checkOutTime || '07:00:00')
 
     if (checkOutTimeStr > propCheckOutTime) {
       nights += 1
@@ -349,7 +369,7 @@ export function BookingDetails({
         : Number(f.discountAmount || 0)
 
     const tax = showTax
-      ? (subtotal - discountAmount) * ((p.taxPercentage || 0) / 100)
+      ? (subtotal - discountAmount) * ((p.settings?.taxAmount ?? p.taxPercentage ?? 0) / 100)
       : 0
     const finalTotal = subtotal - discountAmount + tax
 
@@ -586,7 +606,10 @@ export function BookingDetails({
                 >
                   {folio.status}
                 </Badge>
-                <h2 className="text-4xl font-heading font-black tracking-tighter text-slate-900 leading-none">
+                <h2 
+                  className="text-4xl font-heading font-black tracking-tighter text-slate-900 leading-none cursor-pointer hover:text-primary transition-colors"
+                  onClick={() => router.push(`/guests/${folio.guestId}`)}
+                >
                   {folio.Guest?.name}
                 </h2>
                 <div className="flex items-center gap-2 mt-1">
@@ -1180,7 +1203,7 @@ export function BookingDetails({
                         <span className="text-slate-500">
                           Tax{' '}
                           {showTax
-                            ? `(${property?.taxPercentage}%)`
+                            ? `(${property?.settings?.taxAmount ?? property?.taxPercentage}%)`
                             : '(Excluded)'}
                         </span>
                         <span className="text-slate-900">

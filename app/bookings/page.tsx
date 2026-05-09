@@ -7,7 +7,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { format } from 'date-fns'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useRouter } from 'next/navigation'
 import {
   BedDouble,
   Calendar,
@@ -17,6 +16,7 @@ import {
   Search,
   User,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 import { BookingDetails } from '@/components/bookings/booking-details'
@@ -96,7 +96,11 @@ export default function BookingsPage() {
   )
 
   const upcomingBookings = filteredBookings?.filter((b) => 
-    ['CONFIRMED', 'CHECKED_IN', 'PENDING'].includes(b.status || '')
+    ['CONFIRMED', 'PENDING'].includes(b.status || '')
+  )
+
+  const checkedInBookings = filteredBookings?.filter((b) => 
+    b.status === 'CHECKED_IN'
   )
 
   const pastBookings = filteredBookings?.filter((b) => 
@@ -147,10 +151,13 @@ export default function BookingsPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="upcoming" className="w-full">
+      <Tabs defaultValue="checkedin" className="w-full">
         <TabsList className="bg-slate-100 p-1 rounded-2xl h-14 mb-8">
           <TabsTrigger value="upcoming" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
             Upcoming ({upcomingBookings?.length || 0})
+          </TabsTrigger>
+          <TabsTrigger value="checkedin" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
+            Checked In ({checkedInBookings?.length || 0})
           </TabsTrigger>
           <TabsTrigger value="past" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
             Past ({pastBookings?.length || 0})
@@ -164,6 +171,17 @@ export default function BookingsPage() {
           <div className="grid gap-4">
             <BookingList 
               bookings={upcomingBookings} 
+              loading={loading} 
+              onBookingClick={handleBookingClick}
+              onNewBooking={() => router.push('/bookings/new')}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="checkedin" className="mt-0">
+          <div className="grid gap-4">
+            <BookingList 
+              bookings={checkedInBookings} 
               loading={loading} 
               onBookingClick={handleBookingClick}
               onNewBooking={() => router.push('/bookings/new')}

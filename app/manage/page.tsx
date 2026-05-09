@@ -69,7 +69,7 @@ type DropDownType = {
   properties: Nullable<
     Pick<
       Tables<'Property'>,
-      'id' | 'name' | 'timezone' | 'taxPercentage' | 'checkOutTime'
+      'id' | 'name' | 'timezone' | 'taxPercentage' | 'checkOutTime' | 'settings'
     >[]
   >
   roomTypes: Nullable<Pick<Tables<'RoomType'>, 'id' | 'name' | 'propertyId'>[]>
@@ -144,7 +144,7 @@ export default function ManagePage() {
   const fetchDropdowns = async () => {
     const { data: properties } = await supabase
       .from('Property')
-      .select('id, name, timezone, taxPercentage, checkOutTime')
+      .select('id, name, timezone, taxPercentage, checkOutTime, settings')
     const { data: roomTypes } = await supabase
       .from('RoomType')
       .select('id, name, propertyId')
@@ -400,12 +400,16 @@ export default function ManagePage() {
                 (p) => p.id === data.propertyId,
               )
 
+              const propertySettings = propertyInfo?.settings as { checkoutTime?: string, taxAmount?: number, defaultTaxEnabled?: boolean, checkinTime?: string} | null
+
               // 1. Base nights = calendar days
               let nights = differenceInCalendarDays(end, start)
 
               // 2. Time-based logic
               const checkOutTimeStr = format(end, 'HH:mm:ss')
-              const propCheckOutTime = propertyInfo?.checkOutTime || '07:00:00'
+              const propCheckOutTime = propertySettings?.checkoutTime 
+                ? `${propertySettings.checkoutTime}:00`
+                : (propertyInfo?.checkOutTime || '07:00:00')
               if (checkOutTimeStr > propCheckOutTime) {
                 nights += 1
               }
@@ -429,7 +433,7 @@ export default function ManagePage() {
 
               const subtotal = rate * nights
               const taxVal =
-                subtotal * ((propertyInfo?.taxPercentage || 0) / 100)
+                subtotal * (((propertySettings?.taxAmount ?? propertyInfo?.taxPercentage) || 0) / 100)
               const totalAmount = subtotal + taxVal
 
               return {
@@ -450,9 +454,6 @@ export default function ManagePage() {
         ...(data.quantity
           ? { quantity: parseInt(data.quantity as string) }
           : {}),
-        ...(data.taxPercentage
-          ? { taxPercentage: parseFloat(data.taxPercentage as string) }
-          : {}),
         ...(data.totalRooms
           ? { totalRooms: parseInt(data.totalRooms as string) }
           : {}),
@@ -462,6 +463,26 @@ export default function ManagePage() {
         ...(data.totalAmount
           ? { totalAmount: parseFloat(data.totalAmount as string) }
           : {}),
+        ...(activeEntity === 'Property' ? {
+          settings: {
+            ...(editingItem?.settings || {}),
+            taxAmount: parseFloat(data.taxAmount as string) || 0,
+            defaultTaxEnabled: data.defaultTaxEnabled === 'on',
+            checkinTime: data.checkinTime as string,
+            checkoutTime: data.checkoutTime as string,
+          }
+        } : {}),
+      }
+
+      // Remove deprecated fields from Property payload
+      if (activeEntity === 'Property') {
+        delete (payload as any).taxPercentage
+        delete (payload as any).taxAmount
+        delete (payload as any).defaultTaxEnabled
+        delete (payload as any).checkinTime
+        delete (payload as any).checkoutTime
+        delete (payload as any).checkInTime
+        delete (payload as any).checkOutTime
       }
 
       let dbResult
@@ -777,30 +798,42 @@ export default function ManagePage() {
                 defaultValue={editingItem?.timezone || ''}
               />
             </div>
-            <div className="space-y-2">
-              <Label>Tax Percentage (%)</Label>
-              <Input
-                name="taxPercentage"
-                type="number"
-                step="0.01"
-                defaultValue={editingItem?.taxPercentage || '0'}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Tax Amount (%)</Label>
+                <Input
+                  name="taxAmount"
+                  type="number"
+                  step="0.01"
+                  defaultValue={editingItem?.settings?.taxAmount || editingItem?.taxPercentage || '12'}
+                />
+              </div>
+              <div className="flex items-center space-x-2 pt-8">
+                <input
+                  type="checkbox"
+                  name="defaultTaxEnabled"
+                  id="defaultTaxEnabled"
+                  defaultChecked={editingItem?.settings?.defaultTaxEnabled !== false}
+                  className="w-4 h-4 rounded border-slate-300"
+                />
+                <Label htmlFor="defaultTaxEnabled" className="text-xs font-bold uppercase tracking-tight opacity-70">Enable Tax</Label>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Default Check-in Time</Label>
+                <Label>Check-in Time</Label>
                 <Input
-                  name="checkInTime"
+                  name="checkinTime"
                   type="time"
-                  defaultValue={editingItem?.checkInTime || '08:00'}
+                  defaultValue={editingItem?.settings?.checkinTime || editingItem?.checkInTime || '12:00'}
                 />
               </div>
               <div className="space-y-2">
-                <Label>Default Check-out Time</Label>
+                <Label>Check-out Time</Label>
                 <Input
-                  name="checkOutTime"
+                  name="checkoutTime"
                   type="time"
-                  defaultValue={editingItem?.checkOutTime || '07:00'}
+                  defaultValue={editingItem?.settings?.checkoutTime || editingItem?.checkOutTime || '11:00'}
                 />
               </div>
             </div>

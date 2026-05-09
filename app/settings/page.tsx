@@ -2,158 +2,279 @@
 
 import { useState, useEffect } from 'react';
 import { useProperty } from '@/components/providers/property-provider';
-import { db, PropertySetting } from '@/lib/db/dexie';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Hotel, Percent, Globe, Save, ShieldCheck } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { 
+  Hotel, 
+  Clock, 
+  FileText, 
+  Save, 
+  ShieldCheck, 
+  Building2,
+  Receipt,
+  Fingerprint
+} from 'lucide-react';
 import { motion } from 'framer-motion';
+import { createClient } from '@/lib/utils/supabase/client';
 
 export default function SettingsPage() {
   const { currentProperty } = useProperty();
-  const [settings, setSettings] = useState<PropertySetting | null>(null);
+  const [settings, setSettings] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const supabase = createClient();
 
   useEffect(() => {
-    if (!currentProperty) return;
-
-    const loadSettings = async () => {
-      const s = await db.propertySettings.get(currentProperty.id);
-      if (s) {
-        setSettings(s);
-      } else {
-        // Initialize if not exists
-        const initial = {
-          id: currentProperty.id,
-          taxRate: 12,
-          currency: 'INR',
-          updatedAt: Date.now()
-        };
-        await db.propertySettings.put(initial);
-        setSettings(initial);
-      }
-    };
-
-    loadSettings();
+    if (currentProperty) {
+      setSettings(currentProperty.settings || {
+        defaultTaxEnabled: true,
+        taxAmount: 12,
+        checkinTime: '12:00',
+        checkoutTime: '11:00',
+        gstin: '',
+        pan: '',
+        fssai: ''
+      });
+    }
   }, [currentProperty]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!settings) return;
+    if (!settings || !currentProperty) return;
 
     setIsSaving(true);
-    await db.propertySettings.put({
-      ...settings,
-      updatedAt: Date.now()
-    });
     
-    // Simulate API sync delay
-    setTimeout(() => {
-      setIsSaving(false);
-    }, 800);
+    const { error } = await supabase
+      .from('Property')
+      .update({
+        settings: settings
+      })
+      .eq('id', currentProperty.id);
+
+    if (error) {
+      console.error('Error saving settings:', error);
+      alert('Failed to save settings');
+    } else {
+      // Simulate success delay for UI
+      setTimeout(() => {
+        setIsSaving(false);
+        window.location.reload(); // Refresh to update context
+      }, 500);
+    }
   };
 
   if (!settings) return null;
 
   return (
-    <div className="p-6 space-y-8 max-w-4xl mx-auto">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Property Settings</h1>
-        <p className="text-muted-foreground mt-1">Configure your hotel's billing, taxation, and regional preferences.</p>
-      </div>
+    <div className="p-6 md:p-12 space-y-10 max-w-5xl mx-auto animate-in fade-in duration-500">
+      <header className="space-y-1">
+        <h1 className="text-5xl font-heading font-black tracking-tighter text-slate-900 leading-none">
+          Property Settings
+        </h1>
+        <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">
+          Configuration Hub • {currentProperty?.name}
+        </p>
+      </header>
 
-      <form onSubmit={handleSave} className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* General Config */}
-          <Card className="md:col-span-2 border-none shadow-xl bg-card/60 backdrop-blur-lg">
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-primary/10 text-primary">
-                  <Hotel className="h-5 w-5" />
-                </div>
-                <div>
-                  <CardTitle className="text-lg">Financial Configuration</CardTitle>
-                  <CardDescription>Rules for automated guest billing</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="taxRate">Property Tax Rate (%)</Label>
-                  <div className="relative">
-                    <Input 
-                      id="taxRate"
-                      type="number"
-                      value={settings.taxRate}
-                      onChange={e => setSettings({...settings, taxRate: parseFloat(e.target.value)})}
-                      className="pl-10"
-                    />
-                    <Percent className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+      <form onSubmit={handleSave} className="space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          <div className="lg:col-span-2 space-y-8">
+            {/* Financial Config */}
+            <Card className="rounded-[2.5rem] border-none shadow-2xl shadow-slate-200/50 bg-white overflow-hidden">
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-600">
+                    <Receipt className="h-6 w-6" />
                   </div>
-                  <p className="text-[10px] text-muted-foreground ml-1">Applied to all Room Charges and Services.</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="currency">Base Currency</Label>
-                  <div className="relative">
-                    <select 
-                      id="currency"
-                      value={settings.currency}
-                      onChange={e => setSettings({...settings, currency: e.target.value})}
-                      className="w-full h-10 rounded-lg border bg-background px-10 text-sm focus:ring-2 focus:ring-primary appearance-none"
-                    >
-                      <option value="INR">INR (₹) - Indian Rupee</option>
-                      <option value="USD">USD ($) - US Dollar</option>
-                      <option value="EUR">EUR (€) - Euro</option>
-                    </select>
-                    <Globe className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <CardTitle className="text-xl font-heading font-black tracking-tighter">Billing & Taxation</CardTitle>
+                    <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Revenue & Tax rules</CardDescription>
                   </div>
                 </div>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/10 flex gap-4">
-                <ShieldCheck className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-                <div className="text-xs text-amber-800 leading-relaxed">
-                  <strong>Taxation Disclaimer:</strong> Changing the tax rate will only affect new folio items. Existing invoices will maintain their original tax calculations for audit integrity.
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Quick Stats/Summary */}
-          <div className="space-y-6">
-            <Card className="border-none shadow-xl bg-primary text-primary-foreground">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-bold uppercase tracking-widest opacity-80">Sync Status</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-black">All Local</div>
-                <p className="text-xs opacity-70 mt-1">Changes are saved instantly to IndexedDB and queued for cloud sync.</p>
-                <Button variant="secondary" className="w-full mt-4 font-bold text-xs" type="submit" disabled={isSaving}>
-                  {isSaving ? 'Syncing...' : 'Force Sync Now'}
-                </Button>
+              <CardContent className="space-y-8">
+                <div className="flex items-center space-x-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                  <Checkbox 
+                    id="taxEnabled" 
+                    checked={settings.defaultTaxEnabled}
+                    onCheckedChange={(checked) => setSettings({...settings, defaultTaxEnabled: checked})}
+                    className="w-6 h-6 rounded-lg border-slate-300 data-[state=checked]:bg-primary"
+                  />
+                  <div className="grid gap-1.5 leading-none">
+                    <label htmlFor="taxEnabled" className="text-sm font-black text-slate-900 cursor-pointer">
+                      Enable Default Tax Calculation
+                    </label>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                      When enabled, tax will be automatically added to all new bookings.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Default Tax Rate (%)</Label>
+                    <Input 
+                      type="number"
+                      value={settings.taxAmount}
+                      onChange={e => setSettings({...settings, taxAmount: parseFloat(e.target.value)})}
+                      className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-bold"
+                      disabled={!settings.defaultTaxEnabled}
+                    />
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            <motion.div
-              whileHover={{ scale: 1.02 }}
-              className="p-6 rounded-3xl bg-secondary/30 border border-secondary flex flex-col items-center text-center space-y-3"
-            >
-              <div className="w-12 h-12 rounded-full bg-background flex items-center justify-center shadow-inner">
-                <Save className="h-6 w-6 text-primary" />
-              </div>
-              <div>
-                <h4 className="font-bold text-sm">Save Preferences</h4>
-                <p className="text-[10px] text-muted-foreground">Apply these settings across all devices for {currentProperty?.name}.</p>
-              </div>
-              <Button className="w-full font-bold gap-2" type="submit" disabled={isSaving}>
-                <Save className="h-4 w-4" /> {isSaving ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </motion.div>
+            {/* Timings Config */}
+            <Card className="rounded-[2.5rem] border-none shadow-2xl shadow-slate-200/50 bg-white overflow-hidden">
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-blue-50 text-blue-600">
+                    <Clock className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl font-heading font-black tracking-tighter">Property Timings</CardTitle>
+                    <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Standard Check-in/out hours</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Standard Check-In</Label>
+                  <Input 
+                    type="time"
+                    value={settings.checkinTime}
+                    onChange={e => setSettings({...settings, checkinTime: e.target.value})}
+                    className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-bold"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Standard Check-Out</Label>
+                  <Input 
+                    type="time"
+                    value={settings.checkoutTime}
+                    onChange={e => setSettings({...settings, checkoutTime: e.target.value})}
+                    className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-bold"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Legal & Compliance */}
+            <Card className="rounded-[2.5rem] border-none shadow-2xl shadow-slate-200/50 bg-white overflow-hidden">
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-amber-50 text-amber-600">
+                    <ShieldCheck className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl font-heading font-black tracking-tighter">Legal & Compliance</CardTitle>
+                    <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60">GST, PAN and Licensing</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">GSTIN Number</Label>
+                    <Input 
+                      placeholder="22AAAAA0000A1Z5"
+                      value={settings.gstin}
+                      onChange={e => setSettings({...settings, gstin: e.target.value})}
+                      className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-bold uppercase"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">PAN Number</Label>
+                    <Input 
+                      placeholder="ABCDE1234F"
+                      value={settings.pan}
+                      onChange={e => setSettings({...settings, pan: e.target.value})}
+                      className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-bold uppercase"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">FSSAI Number</Label>
+                    <Input 
+                      placeholder="100XXXXXXXXXXX"
+                      value={settings.fssai}
+                      onChange={e => setSettings({...settings, fssai: e.target.value})}
+                      className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-50">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">GSTIN Document (URL)</Label>
+                    <Input 
+                      placeholder="https://..."
+                      value={settings.gstinDocUrl || ''}
+                      onChange={e => setSettings({...settings, gstinDocUrl: e.target.value})}
+                      className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-medium text-xs"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">PAN Document (URL)</Label>
+                    <Input 
+                      placeholder="https://..."
+                      value={settings.panDocUrl || ''}
+                      onChange={e => setSettings({...settings, panDocUrl: e.target.value})}
+                      className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-medium text-xs"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">FSSAI Document (URL)</Label>
+                    <Input 
+                      placeholder="https://..."
+                      value={settings.fssaiDocUrl || ''}
+                      onChange={e => setSettings({...settings, fssaiDocUrl: e.target.value})}
+                      className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-medium text-xs"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
+
+          <div className="space-y-8">
+            {/* Save Card */}
+            <Card className="rounded-[2.5rem] border-none shadow-2xl shadow-primary/10 bg-primary text-white overflow-hidden sticky top-8">
+              <CardHeader>
+                <div className="w-16 h-16 rounded-3xl bg-white/10 backdrop-blur-md flex items-center justify-center mb-4">
+                  <Save className="h-8 w-8 text-white" />
+                </div>
+                <CardTitle className="text-2xl font-heading font-black tracking-tighter leading-tight">
+                  Save Changes
+                </CardTitle>
+                <CardDescription className="text-white/60 font-bold text-xs">
+                  Updated preferences will be applied globally across the property.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <Button 
+                  className="w-full h-16 rounded-[1.5rem] bg-white text-primary hover:bg-slate-50 transition-all font-heading font-black tracking-tighter text-lg shadow-xl"
+                  type="submit"
+                  disabled={isSaving}
+                >
+                  {isSaving ? 'UPDATING...' : 'CONFIRM SAVE'}
+                </Button>
+                
+                <div className="mt-8 pt-8 border-t border-white/10 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Fingerprint className="h-4 w-4 text-white/40" />
+                    <p className="text-[9px] font-black uppercase tracking-widest text-white/40 leading-relaxed">
+                      All changes are logged for security and audit transparency.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
         </div>
       </form>
     </div>

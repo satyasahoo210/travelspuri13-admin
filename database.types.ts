@@ -383,7 +383,9 @@ export type Database = {
           idProofUrl: string | null
           gstin: string | null
           name: string
+          notes: string | null
           phone: string | null
+          preferences: string | null
           tenantId: string
           updatedAt: string | null
         }
@@ -397,7 +399,9 @@ export type Database = {
           idProofUrl?: string | null
           gstin?: string | null
           name: string
+          notes?: string | null
           phone?: string | null
+          preferences?: string | null
           tenantId: string
           updatedAt?: string | null
         }
@@ -411,7 +415,9 @@ export type Database = {
           idProofUrl?: string | null
           gstin?: string | null
           name?: string
+          notes?: string | null
           phone?: string | null
+          preferences?: string | null
           tenantId?: string
           updatedAt?: string | null
         }
@@ -780,6 +786,8 @@ export type Database = {
           logoUrl: string | null
           name: string
           phone: string | null
+          photos: string[] | null
+          settings: Json | null
           taxPercentage: number | null
           tenantId: string
           timezone: string
@@ -795,6 +803,8 @@ export type Database = {
           logoUrl?: string | null
           name: string
           phone?: string | null
+          photos?: string[] | null
+          settings?: Json | null
           taxPercentage?: number | null
           tenantId: string
           timezone: string
@@ -810,6 +820,8 @@ export type Database = {
           logoUrl?: string | null
           name?: string
           phone?: string | null
+          photos?: string[] | null
+          settings?: Json | null
           taxPercentage?: number | null
           tenantId?: string
           timezone?: string
@@ -867,6 +879,7 @@ export type Database = {
           defaultPrice: number | null
           id: string
           name: string
+          photos: string[] | null
           propertyId: string
           updatedAt: string | null
         }
@@ -876,6 +889,7 @@ export type Database = {
           defaultPrice?: number | null
           id?: string
           name: string
+          photos?: string[] | null
           propertyId: string
           updatedAt?: string | null
         }
@@ -885,6 +899,7 @@ export type Database = {
           defaultPrice?: number | null
           id?: string
           name?: string
+          photos?: string[] | null
           propertyId?: string
           updatedAt?: string | null
         }
