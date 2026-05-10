@@ -1,29 +1,168 @@
 'use client';
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { BedDouble, Users, CreditCard, ArrowUpRight, ArrowDownRight, Activity } from "lucide-react";
-import { motion } from "framer-motion";
 import { AnalyticsChart } from "@/components/dashboard/analytics-chart";
+import { useProperty } from "@/components/providers/property-provider";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-
-const stats = [
-  { label: 'Occupancy', value: '78%', sub: '+4% from last week', trend: 'up', icon: BedDouble },
-  { label: 'Revenue Today', value: '₹42,500', sub: '+12% from avg', trend: 'up', icon: CreditCard },
-  { label: 'Check-ins', value: '14', sub: '8 Check-outs today', trend: 'neutral', icon: Activity },
-  { label: 'Total Guests', value: '42', sub: 'In house', trend: 'up', icon: Users },
-];
+import { createClient } from "@/lib/utils/supabase/client";
+import { endOfDay, format, isSameDay, startOfDay, subDays } from "date-fns";
+import { motion } from "framer-motion";
+import { Activity, ArrowDownRight, ArrowUpRight, BedDouble, CreditCard, Loader2, Users } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export default function DashboardPage() {
+  const { currentProperty } = useProperty();
+  const supabase = createClient();
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<any[]>([]);
+  const [roomStats, setRoomStats] = useState({ available: 0, occupied: 0, cleaning: 0, total: 0 });
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      if (!currentProperty) return;
+      setLoading(true);
+
+      try {
+        const today = new Date();
+        const startOfToday = startOfDay(today).toISOString();
+        const endOfToday = endOfDay(today).toISOString();
+        const sevenDaysAgo = startOfDay(subDays(today, 6)).toISOString();
+
+        // 1. Fetch Rooms for Status
+        const { data: rooms } = await supabase
+          .from('Room')
+          .select('id, status, roomTypeId, RoomType!inner(propertyId)')
+          .eq('RoomType.propertyId', currentProperty.id);
+
+        // 2. Fetch Payments for Revenue
+        const { data: payments } = await supabase
+          .from('Payment')
+          .select('amount, createdAt, Booking!inner(propertyId)')
+          .eq('Booking.propertyId', currentProperty.id)
+          .gte('createdAt', sevenDaysAgo);
+
+        const revenueToday = payments?.filter(p => isSameDay(new Date(p.createdAt!), today))
+          .reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+
+        // 3. Fetch Bookings for Check-ins, Guests, and Occupancy
+        const { data: bookings } = await supabase
+          .from('Booking')
+          .select('id, status, adults, children, checkInDate, checkOutDate, Guest(name), BookingRoom(quantity)')
+          .eq('propertyId', currentProperty.id)
+          .neq('status', 'CANCELLED');
+
+        const checkinsToday = bookings?.filter(b => isSameDay(new Date(b.checkInDate), today)).length || 0;
+        const totalGuests = bookings?.filter(b => b.status === 'CHECKED_IN')
+          .reduce((sum, b) => sum + (b.adults || 0) + (b.children || 0), 0) || 0;
+
+        // Calculate Occupancy from Bookings
+        const occupiedRoomsToday = bookings?.filter(b => {
+          if (b.status === 'CANCELLED') return false;
+          const start = startOfDay(new Date(b.checkInDate));
+          const end = startOfDay(new Date(b.checkOutDate));
+          // Room is occupied if today is between check-in and the day before check-out
+          // OR if it's already checked in (in case of dates mismatch)
+          return (today >= start && today < end) || b.status === 'CHECKED_IN';
+        }).reduce((sum, b) => {
+          const roomsCount = b.BookingRoom?.reduce((s: number, br: any) => s + (br.quantity || 1), 0) || 0;
+          return sum + roomsCount;
+        }, 0) || 0;
+
+        const counts = {
+          available: 0,
+          occupied: occupiedRoomsToday,
+          cleaning: rooms?.filter(r => r.status === 'MAINTENANCE' || r.status === 'DIRTY').length || 0,
+          total: rooms?.length || 0
+        };
+
+        counts.available = counts.total - counts.occupied - counts.cleaning;
+        setRoomStats(counts);
+
+        // 4. Activity Feed
+        const { data: latestBookings } = await supabase
+          .from('Booking')
+          .select('id, status, createdAt, Guest(name), checkInDate')
+          .eq('propertyId', currentProperty.id)
+          .order('createdAt', { ascending: false })
+          .limit(5);
+
+        setRecentActivity(latestBookings?.map(b => ({
+          name: b.Guest?.name || 'Unknown',
+          action: b.status === 'CHECKED_IN' ? 'is checked in' : 
+                  b.status === 'CHECKED_OUT' ? 'checked out' :
+                  b.status === 'CANCELLED' ? 'cancelled' : 'booked',
+          detail: format(new Date(b.checkInDate), 'MMM dd'),
+          time: format(new Date(b.createdAt!), 'hh:mm a'),
+          status: b.status
+        })) || []);
+
+        // 5. Chart Data (Last 7 days)
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const chart = Array.from({ length: 7 }).map((_, i) => {
+          const d = subDays(today, 6 - i);
+          const dayPayments = payments?.filter(p => isSameDay(new Date(p.createdAt!), d)) || [];
+          return {
+            day: days[d.getDay()],
+            revenue: dayPayments.reduce((sum, p) => sum + Number(p.amount), 0),
+            occupancy: 0 // Placeholder
+          };
+        });
+        setChartData(chart);
+
+        // Final Stats Array
+        setStats([
+          { 
+            label: 'Occupancy', 
+            value: counts.total ? `${Math.round((occupiedRoomsToday / counts.total) * 100)}%` : '0%', 
+            sub: `${occupiedRoomsToday} rooms booked`, 
+            trend: 'neutral', 
+            icon: BedDouble 
+          },
+          { label: 'Revenue Today', value: `₹${revenueToday.toLocaleString()}`, sub: 'From payments', trend: 'up', icon: CreditCard },
+          { label: 'Check-ins', value: checkinsToday.toString(), sub: 'Expected today', trend: 'neutral', icon: Activity },
+          { label: 'Total Guests', value: totalGuests.toString(), sub: 'Currently in-house', trend: 'up', icon: Users },
+        ]);
+
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, [currentProperty]);
+
+  if (!currentProperty) {
+    return (
+      <div className="h-[60vh] flex flex-col items-center justify-center space-y-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-muted-foreground font-medium">Selecting your property...</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="h-[60vh] flex flex-col items-center justify-center space-y-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-muted-foreground font-medium">Loading your dashboard...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
       <header className="flex justify-between items-end">
         <div>
           <h2 className="text-3xl font-heading font-bold tracking-tight">Dashboard</h2>
-          <p className="text-muted-foreground">Welcome back, here's what's happening today.</p>
+          <p className="text-muted-foreground">Welcome back, here's what's happening at {currentProperty.name}.</p>
         </div>
         <div className="hidden md:block">
-           <p className="text-sm font-medium text-muted-foreground">Saturday, April 18, 2026</p>
+           <p className="text-sm font-medium text-muted-foreground">{format(new Date(), 'EEEE, MMMM dd, yyyy')}</p>
         </div>
       </header>
 
@@ -68,12 +207,9 @@ export default function DashboardPage() {
               <CardTitle className="font-heading">Revenue Trends</CardTitle>
               <p className="text-xs text-muted-foreground">Daily performance for the current week</p>
             </div>
-            <Badge variant="secondary" className="bg-primary/5 text-primary border-primary/10 font-bold">
-              +12.5%
-            </Badge>
           </CardHeader>
           <CardContent>
-            <AnalyticsChart />
+            <AnalyticsChart data={chartData} />
           </CardContent>
         </Card>
 
@@ -86,37 +222,37 @@ export default function DashboardPage() {
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-muted-foreground font-medium">Available</span>
-                  <span className="font-bold">12</span>
+                  <span className="font-bold">{roomStats.available}</span>
                 </div>
                 <div className="w-full bg-secondary/50 h-2 rounded-full overflow-hidden">
-                  <div className="bg-emerald-500 h-full" style={{ width: '40%' }} />
+                  <div className="bg-emerald-500 h-full" style={{ width: `${roomStats.total ? (roomStats.available / roomStats.total) * 100 : 0}%` }} />
                 </div>
               </div>
               
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-muted-foreground font-medium">Occupied</span>
-                  <span className="font-bold">18</span>
+                  <span className="font-bold">{roomStats.occupied}</span>
                 </div>
                 <div className="w-full bg-secondary/50 h-2 rounded-full overflow-hidden">
-                  <div className="bg-primary h-full" style={{ width: '60%' }} />
+                  <div className="bg-primary h-full" style={{ width: `${roomStats.total ? (roomStats.occupied / roomStats.total) * 100 : 0}%` }} />
                 </div>
               </div>
 
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground font-medium">Cleaning</span>
-                  <span className="font-bold">4</span>
+                  <span className="text-muted-foreground font-medium">Cleaning / Maintenance</span>
+                  <span className="font-bold">{roomStats.cleaning}</span>
                 </div>
                 <div className="w-full bg-secondary/50 h-2 rounded-full overflow-hidden">
-                  <div className="bg-amber-400 h-full" style={{ width: '15%' }} />
+                  <div className="bg-amber-400 h-full" style={{ width: `${roomStats.total ? (roomStats.cleaning / roomStats.total) * 100 : 0}%` }} />
                 </div>
               </div>
 
               <div className="mt-8 p-4 bg-primary/5 rounded-xl border border-primary/10">
-                <p className="text-xs font-bold text-primary uppercase tracking-tight mb-2">Pro Tip</p>
+                <p className="text-xs font-bold text-primary uppercase tracking-tight mb-2">Inventory Summary</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  High occupancy expected this weekend. Ensure all 4 rooms under maintenance are ready by Friday.
+                  You have {roomStats.total} total rooms. {roomStats.available} are ready for new bookings.
                 </p>
               </div>
             </div>
@@ -131,14 +267,10 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              {[
-                { name: 'John Doe', action: 'checked in', detail: 'Room 204', time: '10:30 AM', status: 'In House' },
-                { name: 'Alice Smith', action: 'booked', detail: 'Deluxe Suite', time: '09:15 AM', status: 'Confirmed' },
-                { name: 'Bob Wilson', action: 'payment failed', detail: 'Booking #8291', time: '08:45 AM', status: 'Action Required' },
-              ].map((item, i) => (
+              {recentActivity.length > 0 ? recentActivity.map((item, i) => (
                 <div key={i} className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-primary/5 flex items-center justify-center font-bold text-xs text-primary">
-                    {item.name.split(' ').map(n => n[0]).join('')}
+                    {item.name.split(' ').map((n: string) => n[0]).join('')}
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium">{item.name} <span className="text-muted-foreground font-normal">{item.action}</span></p>
@@ -148,13 +280,15 @@ export default function DashboardPage() {
                     variant="outline" 
                     className={cn(
                       "font-normal text-[10px] uppercase tracking-wider",
-                      item.status === 'Action Required' ? "text-destructive border-destructive/20 bg-destructive/5" : ""
+                      item.status === 'CANCELLED' ? "text-destructive border-destructive/20 bg-destructive/5" : ""
                     )}
                   >
                     {item.status}
                   </Badge>
                 </div>
-              ))}
+              )) : (
+                <p className="text-sm text-center text-muted-foreground py-8">No recent activity found.</p>
+              )}
             </div>
           </CardContent>
         </Card>

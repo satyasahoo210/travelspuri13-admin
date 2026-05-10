@@ -12,7 +12,7 @@ const data = [
   { day: "Sun", revenue: 38000, occupancy: 90 },
 ];
 
-export function AnalyticsChart() {
+export function AnalyticsChart({ data }: { data: any[] }) {
   return (
     <div className="h-[300px] w-full mt-4">
       <ResponsiveContainer width="100%" height="100%">
