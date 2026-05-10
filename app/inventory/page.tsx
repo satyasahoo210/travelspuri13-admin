@@ -14,6 +14,7 @@ import { createClient } from '@/lib/utils/supabase/client';
 import { addDays, format, isWithinInterval, startOfDay } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BedDouble, Calendar, Info, Loader2, Plus, Save, TrendingUp, Users } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 type RoomType = Tables<'RoomType'>;
@@ -320,10 +321,14 @@ export default function InventoryPage() {
                     </div>
                     
                     <div className="pt-6 border-t border-slate-100 flex gap-4">
-                      <Button variant="outline" className="flex-1 h-12 rounded-xl font-bold border-slate-200 hover:bg-slate-50">Manage Rooms</Button>
-                      <Button variant="secondary" className="h-12 w-12 rounded-xl p-0 hover:bg-primary hover:text-white transition-colors">
-                        <TrendingUp className="h-5 w-5" />
-                      </Button>
+                      <Link href="/rooms" className="flex-1">
+                        <Button variant="outline" className="w-full h-12 rounded-xl font-bold border-slate-200 hover:bg-slate-50">Manage Rooms</Button>
+                      </Link>
+                      <Link href="/rates">
+                        <Button variant="secondary" className="h-12 w-12 rounded-xl p-0 hover:bg-primary hover:text-white transition-colors">
+                          <TrendingUp className="h-5 w-5" />
+                        </Button>
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>

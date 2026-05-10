@@ -4,12 +4,23 @@ import { AnalyticsChart } from "@/components/dashboard/analytics-chart";
 import { useProperty } from "@/components/providers/property-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tables } from "@/database.types";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/utils/supabase/client";
 import { endOfDay, format, isSameDay, startOfDay, subDays } from "date-fns";
-import { motion, AnimatePresence } from "framer-motion";
-import { Activity, ArrowDownRight, ArrowUpRight, BedDouble, CreditCard, Loader2, Users, TrendingUp, Calendar, CheckCircle2 } from "lucide-react";
-import { useEffect, useState, useCallback } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Activity, ArrowDownRight, ArrowUpRight, BedDouble, Calendar, CheckCircle2, CreditCard, Loader2, TrendingUp, Users } from "lucide-react";
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+
+type RecentActivity = {
+  bookingId?: string
+  name: string
+  action: string
+  detail: string
+  time: string
+  status: string | null
+}
 
 export default function DashboardPage() {
   const { currentProperty } = useProperty();
@@ -17,7 +28,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any[]>([]);
   const [roomStats, setRoomStats] = useState({ available: 0, occupied: 0, cleaning: 0, total: 0 });
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
 
   const fetchDashboardData = useCallback(async () => {
@@ -84,6 +95,7 @@ export default function DashboardPage() {
         .limit(5);
 
       setRecentActivity(latestBookings?.map(b => ({
+        bookingId: b.id,
         name: b.Guest?.name || 'Unknown',
         action: b.status === 'CHECKED_IN' ? 'is checked in' : 
                 b.status === 'CHECKED_OUT' ? 'checked out' :
@@ -113,7 +125,8 @@ export default function DashboardPage() {
           sub: `${occupiedRoomsToday} rooms live`, 
           trend: 'neutral', 
           icon: BedDouble,
-          color: 'bg-indigo-500'
+          color: 'bg-indigo-500',
+          href: '/inventory'
         },
         { 
           label: 'Revenue Today', 
@@ -121,7 +134,8 @@ export default function DashboardPage() {
           sub: 'Collected today', 
           trend: 'up', 
           icon: CreditCard,
-          color: 'bg-emerald-500'
+          color: 'bg-emerald-500',
+          href: '/payments'
         },
         { 
           label: 'Check-ins', 
@@ -129,7 +143,8 @@ export default function DashboardPage() {
           sub: 'Arrivals today', 
           trend: 'neutral', 
           icon: Calendar,
-          color: 'bg-amber-500'
+          color: 'bg-amber-500',
+          href: '/bookings'
         },
         { 
           label: 'In-House', 
@@ -137,7 +152,8 @@ export default function DashboardPage() {
           sub: 'Active guests', 
           trend: 'up', 
           icon: Users,
-          color: 'bg-pink-500'
+          color: 'bg-pink-500',
+          href: '/bookings'
         },
       ]);
 
@@ -198,28 +214,30 @@ export default function DashboardPage() {
               whileHover={{ y: -5 }}
               className="relative group"
             >
-              <Card className="border-none shadow-xl hover:shadow-2xl transition-all rounded-[2.5rem] overflow-hidden bg-white">
-                <div className={cn("absolute top-0 right-0 w-32 h-32 opacity-10 blur-3xl rounded-full -mr-16 -mt-16 transition-all group-hover:opacity-20", stat.color)} />
-                <CardContent className="p-8">
-                  <div className="flex justify-between items-start relative z-10">
-                    <div className={cn("p-4 rounded-2xl text-white shadow-lg", stat.color)}>
-                      <stat.icon className="h-6 w-6" />
+              <Link href={stat.href || "#"}>
+                <Card className="border-none shadow-xl hover:shadow-2xl transition-all rounded-[2.5rem] overflow-hidden bg-white">
+                  <div className={cn("absolute top-0 right-0 w-32 h-32 opacity-10 blur-3xl rounded-full -mr-16 -mt-16 transition-all group-hover:opacity-20", stat.color)} />
+                  <CardContent className="p-8">
+                    <div className="flex justify-between items-start relative z-10">
+                      <div className={cn("p-4 rounded-2xl text-white shadow-lg", stat.color)}>
+                        <stat.icon className="h-6 w-6" />
+                      </div>
+                      {stat.trend === 'up' && (
+                        <Badge className="bg-emerald-500/10 text-emerald-600 border-none px-3 py-1 rounded-full font-black text-[9px] tracking-widest">
+                          GROWING
+                        </Badge>
+                      )}
                     </div>
-                    {stat.trend === 'up' && (
-                      <Badge className="bg-emerald-500/10 text-emerald-600 border-none px-3 py-1 rounded-full font-black text-[9px] tracking-widest">
-                        GROWING
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="mt-8">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{stat.label}</p>
-                    <h3 className="text-3xl font-black text-slate-900 tracking-tight">{stat.value}</h3>
-                    <p className="text-xs font-bold text-slate-400 mt-2 flex items-center gap-1.5">
-                      {stat.sub}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+                    <div className="mt-8">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{stat.label}</p>
+                      <h3 className="text-3xl font-black text-slate-900 tracking-tight">{stat.value}</h3>
+                      <p className="text-xs font-bold text-slate-400 mt-2 flex items-center gap-1.5">
+                        {stat.sub}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
             </motion.div>
           ))}
         </AnimatePresence>
@@ -289,38 +307,39 @@ export default function DashboardPage() {
             <CardTitle className="text-xl font-black uppercase tracking-tight text-slate-900">Live Activity Feed</CardTitle>
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Latest updates from front desk</p>
           </CardHeader>
-          <CardContent className="p-8 space-y-8">
+          <CardContent className="flex flex-col p-8 space-y-8 gap-1">
             {recentActivity.length > 0 ? recentActivity.map((item, i) => (
-              <motion.div 
-                key={i} 
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="flex items-center gap-6 group"
-              >
-                <div className="relative">
-                  <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center font-black text-sm text-slate-900 group-hover:bg-primary group-hover:text-white transition-all shadow-sm">
-                    {item.name.split(' ').map((n: string) => n[0]).join('')}
-                  </div>
-                  <div className={cn(
-                    "absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white",
-                    item.status === 'CHECKED_IN' ? "bg-emerald-500" : "bg-slate-300"
-                  )} />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-black text-slate-900">{item.name} <span className="text-slate-400 font-bold lowercase tracking-normal">{item.action}</span></p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{item.detail} • {item.time}</p>
-                </div>
-                <Badge 
-                  className={cn(
-                    "font-black text-[9px] uppercase tracking-widest px-3 py-1 rounded-full border-none shadow-sm",
-                    item.status === 'CHECKED_IN' ? "bg-emerald-100 text-emerald-600" :
-                    item.status === 'CANCELLED' ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-600"
-                  )}
+              <Link key={i} href={item.status === 'BOOKED' ? '/bookings' : `/bookings?id=${item.bookingId}`}>
+                <motion.div 
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.1 }}
+                  className="flex items-center gap-6 group cursor-pointer"
                 >
-                  {item.status}
-                </Badge>
-              </motion.div>
+                  <div className="relative">
+                    <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center font-black text-sm text-slate-900 group-hover:bg-primary group-hover:text-white transition-all shadow-sm">
+                      {item.name.split(' ').map((n: string) => n[0]).join('')}
+                    </div>
+                    <div className={cn(
+                      "absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white",
+                      item.status === 'CHECKED_IN' ? "bg-emerald-500" : "bg-slate-300"
+                    )} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-black text-slate-900">{item.name} <span className="text-slate-400 font-bold lowercase tracking-normal">{item.action}</span></p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{item.detail} • {item.time}</p>
+                  </div>
+                  <Badge 
+                    className={cn(
+                      "font-black text-[9px] uppercase tracking-widest px-3 py-1 rounded-full border-none shadow-sm",
+                      item.status === 'CHECKED_IN' ? "bg-emerald-100 text-emerald-600" :
+                      item.status === 'CANCELLED' ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-600"
+                    )}
+                  >
+                    {item.status}
+                  </Badge>
+                </motion.div>
+              </Link>
             )) : (
               <div className="text-center py-12 space-y-4">
                 <div className="w-16 h-16 bg-slate-50 rounded-full mx-auto flex items-center justify-center">

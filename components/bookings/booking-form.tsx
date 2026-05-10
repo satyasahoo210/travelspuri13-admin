@@ -78,7 +78,6 @@ export function BookingForm({
         .from('Room')
         .select('id, roomNumber, roomTypeId, RoomType!inner(propertyId, defaultPrice)')
         .eq('RoomType.propertyId', currentProperty.id)
-        .eq('status', 'AVAILABLE')
 
       if (guestData) setGuests(guestData)
       if (roomData) setRooms(roomData)
