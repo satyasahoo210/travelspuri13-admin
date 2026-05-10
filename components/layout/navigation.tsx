@@ -26,10 +26,10 @@ const baseNavItems = [
   { label: 'Calendar', href: '/calendar', icon: CalendarRange, enabled: true },
   { label: 'Bookings', href: '/bookings', icon: Users, enabled: true },
   { label: 'Inventory', href: '/inventory', icon: BedDouble, enabled: true},
-  { label: 'Housekeeping', href: '/housekeeping', icon: RefreshCcw, enabled: false },
-  { label: 'Rates', href: '/rates', icon: TrendingUp, enabled: false },
-  { label: 'Reports', href: '/reports', icon: BarChart3, enabled: false },
-  { label: 'Messages', href: '/messages', icon: MessageSquare, enabled: false },
+  { label: 'Housekeeping', href: '/housekeeping', icon: RefreshCcw, enabled: true },
+  { label: 'Rates', href: '/rates', icon: TrendingUp, enabled: true },
+  { label: 'Reports', href: '/reports', icon: BarChart3, enabled: true },
+  { label: 'Messages', href: '/messages', icon: MessageSquare, enabled: true },
   { label: 'Settings', href: '/settings', icon: CreditCard, enabled: true },
 ]
 

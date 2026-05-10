@@ -112,6 +112,7 @@ export type Database = {
       }
       Booking: {
         Row: {
+          actualCheckOut: string | null
           adults: number | null
           checkInDate: string
           checkOutDate: string
@@ -131,6 +132,7 @@ export type Database = {
           waiveLastDayCharge: boolean | null
         }
         Insert: {
+          actualCheckOut?: string | null
           adults?: number | null
           checkInDate: string
           checkOutDate: string
@@ -150,6 +152,7 @@ export type Database = {
           waiveLastDayCharge?: boolean | null
         }
         Update: {
+          actualCheckOut?: string | null
           adults?: number | null
           checkInDate?: string
           checkOutDate?: string
@@ -377,11 +380,12 @@ export type Database = {
           address: string | null
           createdAt: string | null
           email: string | null
+          grNumber: string | null
+          gstin: string | null
           id: string
           idProofNumber: string | null
           idProofType: string | null
           idProofUrl: string | null
-          gstin: string | null
           name: string
           notes: string | null
           phone: string | null
@@ -393,11 +397,12 @@ export type Database = {
           address?: string | null
           createdAt?: string | null
           email?: string | null
+          grNumber?: string | null
+          gstin?: string | null
           id?: string
           idProofNumber?: string | null
           idProofType?: string | null
           idProofUrl?: string | null
-          gstin?: string | null
           name: string
           notes?: string | null
           phone?: string | null
@@ -409,11 +414,12 @@ export type Database = {
           address?: string | null
           createdAt?: string | null
           email?: string | null
+          grNumber?: string | null
+          gstin?: string | null
           id?: string
           idProofNumber?: string | null
           idProofType?: string | null
           idProofUrl?: string | null
-          gstin?: string | null
           name?: string
           notes?: string | null
           phone?: string | null
@@ -517,6 +523,64 @@ export type Database = {
           },
           {
             foreignKeyName: "Leave_tenantId_fkey"
+            columns: ["tenantId"]
+            isOneToOne: false
+            referencedRelation: "Tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      Message: {
+        Row: {
+          bookingId: string | null
+          channel: string | null
+          content: string
+          createdAt: string | null
+          direction: string
+          guestId: string
+          id: string
+          status: string | null
+          tenantId: string
+        }
+        Insert: {
+          bookingId?: string | null
+          channel?: string | null
+          content: string
+          createdAt?: string | null
+          direction: string
+          guestId: string
+          id?: string
+          status?: string | null
+          tenantId: string
+        }
+        Update: {
+          bookingId?: string | null
+          channel?: string | null
+          content?: string
+          createdAt?: string | null
+          direction?: string
+          guestId?: string
+          id?: string
+          status?: string | null
+          tenantId?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "Message_bookingId_fkey"
+            columns: ["bookingId"]
+            isOneToOne: false
+            referencedRelation: "Booking"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "Message_guestId_fkey"
+            columns: ["guestId"]
+            isOneToOne: false
+            referencedRelation: "Guest"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "Message_tenantId_fkey"
             columns: ["tenantId"]
             isOneToOne: false
             referencedRelation: "Tenant"
@@ -837,10 +901,62 @@ export type Database = {
           },
         ]
       }
+      RateOverride: {
+        Row: {
+          createdAt: string | null
+          endDate: string
+          id: string
+          rate: number
+          roomTypeId: string
+          startDate: string
+          tenantId: string
+          updatedAt: string | null
+        }
+        Insert: {
+          createdAt?: string | null
+          endDate: string
+          id?: string
+          rate: number
+          roomTypeId: string
+          startDate: string
+          tenantId: string
+          updatedAt?: string | null
+        }
+        Update: {
+          createdAt?: string | null
+          endDate?: string
+          id?: string
+          rate?: number
+          roomTypeId?: string
+          startDate?: string
+          tenantId?: string
+          updatedAt?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "RateOverride_roomTypeId_fkey"
+            columns: ["roomTypeId"]
+            isOneToOne: false
+            referencedRelation: "RoomType"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "RateOverride_tenantId_fkey"
+            columns: ["tenantId"]
+            isOneToOne: false
+            referencedRelation: "Tenant"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       Room: {
         Row: {
           createdAt: string | null
+          housekeepingStatus:
+            | Database["public"]["Enums"]["HousekeepingStatus"]
+            | null
           id: string
+          priorityCleaning: boolean | null
           roomNumber: string
           roomTypeId: string
           status: Database["public"]["Enums"]["RoomStatus"] | null
@@ -848,7 +964,11 @@ export type Database = {
         }
         Insert: {
           createdAt?: string | null
+          housekeepingStatus?:
+            | Database["public"]["Enums"]["HousekeepingStatus"]
+            | null
           id?: string
+          priorityCleaning?: boolean | null
           roomNumber: string
           roomTypeId: string
           status?: Database["public"]["Enums"]["RoomStatus"] | null
@@ -856,7 +976,11 @@ export type Database = {
         }
         Update: {
           createdAt?: string | null
+          housekeepingStatus?:
+            | Database["public"]["Enums"]["HousekeepingStatus"]
+            | null
           id?: string
+          priorityCleaning?: boolean | null
           roomNumber?: string
           roomTypeId?: string
           status?: Database["public"]["Enums"]["RoomStatus"] | null
@@ -871,6 +995,18 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      room_subtotal_nightly: {
+        Row: {
+          coalesce: number | null
+        }
+        Insert: {
+          coalesce?: number | null
+        }
+        Update: {
+          coalesce?: number | null
+        }
+        Relationships: []
       }
       RoomType: {
         Row: {
@@ -1151,6 +1287,7 @@ export type Database = {
         | "CHECKED_OUT"
         | "CANCELLED"
         | "NO_SHOW"
+      HousekeepingStatus: "READY" | "DIRTY" | "CLEANING" | "INSPECTING"
       LeaveStatus: "PENDING" | "APPROVED" | "REJECTED"
       OrderStatus: "PENDING" | "COMPLETED" | "CANCELLED"
       PaymentStatus: "PENDING" | "PAID" | "PARTIAL" | "REFUNDED"
@@ -1291,6 +1428,7 @@ export const Constants = {
         "CANCELLED",
         "NO_SHOW",
       ],
+      HousekeepingStatus: ["READY", "DIRTY", "CLEANING", "INSPECTING"],
       LeaveStatus: ["PENDING", "APPROVED", "REJECTED"],
       OrderStatus: ["PENDING", "COMPLETED", "CANCELLED"],
       PaymentStatus: ["PENDING", "PAID", "PARTIAL", "REFUNDED"],

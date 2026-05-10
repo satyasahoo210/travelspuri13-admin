@@ -593,3 +593,59 @@ ALTER TABLE "RoomType" ADD COLUMN IF NOT EXISTS "photos" TEXT[];
 
 ALTER TABLE "Guest" ADD COLUMN IF NOT EXISTS "preferences" TEXT;
 ALTER TABLE "Guest" ADD COLUMN IF NOT EXISTS "notes" TEXT;
+
+-- ==========================================
+-- MIGRATION: MAY 2026 - REAL-TIME FEATURES
+-- ==========================================
+
+-- 1. Housekeeping Enhancements
+CREATE TYPE "HousekeepingStatus" AS ENUM ('READY', 'DIRTY', 'CLEANING', 'INSPECTING');
+ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS "housekeepingStatus" "HousekeepingStatus" DEFAULT 'READY';
+ALTER TABLE "Room" ADD COLUMN IF NOT EXISTS "priorityCleaning" BOOLEAN DEFAULT FALSE;
+
+-- 2. Rate Overrides (Seasonal Pricing)
+CREATE TABLE IF NOT EXISTS "RateOverride" (
+    "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "roomTypeId" UUID NOT NULL REFERENCES "RoomType"("id") ON DELETE CASCADE,
+    "tenantId" UUID NOT NULL REFERENCES "Tenant"("id") ON DELETE CASCADE,
+    "startDate" DATE NOT NULL,
+    "endDate" DATE NOT NULL,
+    "rate" DECIMAL(10, 2) NOT NULL,
+    "createdAt" TIMESTAMPTZ DEFAULT now(),
+    "updatedAt" TIMESTAMPTZ DEFAULT now()
+);
+
+-- 3. Guest Messaging Hub
+CREATE TABLE IF NOT EXISTS "Message" (
+    "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "bookingId" UUID REFERENCES "Booking"("id") ON DELETE CASCADE,
+    "guestId" UUID NOT NULL REFERENCES "Guest"("id") ON DELETE CASCADE,
+    "tenantId" UUID NOT NULL REFERENCES "Tenant"("id") ON DELETE CASCADE,
+    "content" TEXT NOT NULL,
+    "direction" TEXT NOT NULL, -- 'INBOUND', 'OUTBOUND'
+    "status" TEXT DEFAULT 'SENT', -- 'SENT', 'DELIVERED', 'READ'
+    "channel" TEXT DEFAULT 'WHATSAPP',
+    "createdAt" TIMESTAMPTZ DEFAULT now()
+);
+
+-- 4. Enable RLS
+ALTER TABLE "RateOverride" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Message" ENABLE ROW LEVEL SECURITY;
+
+-- 5. RLS Policies
+CREATE POLICY "rateoverride_isolation" ON "RateOverride" 
+  USING (is_super_admin() OR "tenantId" = get_auth_tenant());
+
+CREATE POLICY "message_isolation" ON "Message" 
+  USING (is_super_admin() OR "tenantId" = get_auth_tenant());
+
+-- 6. Triggers
+CREATE TRIGGER update_rate_override_updated_at 
+  BEFORE UPDATE ON "RateOverride" 
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+-- 7. Indexes
+CREATE INDEX "idx_rate_override_roomtype" ON "RateOverride"("roomTypeId");
+CREATE INDEX "idx_message_booking" ON "Message"("bookingId");
+CREATE INDEX "idx_message_guest" ON "Message"("guestId");
+

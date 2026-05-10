@@ -1,24 +1,20 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useProperty } from '@/components/providers/property-provider';
-import { db, Booking, Room, FolioItem } from '@/lib/db/dexie';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { createClient } from '@/lib/utils/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
   TrendingUp, 
-  TrendingDown, 
   BarChart3, 
-  PieChart as PieChartIcon, 
   ArrowUpRight, 
   Download, 
-  Calendar as CalendarIcon,
   CreditCard,
-  Users,
   BedDouble,
-  Activity
+  Activity,
+  Loader2
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -28,36 +24,51 @@ import {
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  Legend,
   Cell,
   PieChart,
-  Pie
+  Pie,
+  Legend
 } from 'recharts';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isWithinInterval, subMonths } from 'date-fns';
 import { motion } from 'framer-motion';
 
 export default function ReportsPage() {
   const { currentProperty } = useProperty();
+  const supabase = createClient();
   const [range, setRange] = useState<'current' | 'last'>('current');
+  const [data, setData] = useState<{
+    bookings: any[];
+    rooms: any[];
+    payments: any[];
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Load necessary data
-  const bookings = useLiveQuery(() => 
-    db.bookings.where('propertyId').equals(currentProperty?.id || '').toArray()
-  , [currentProperty]);
+  const fetchData = async () => {
+    if (!currentProperty) return;
+    setLoading(true);
 
-  const rooms = useLiveQuery(() => 
-    db.rooms.toArray()
-  , [currentProperty]);
+    const [bookingsRes, roomsRes, paymentsRes] = await Promise.all([
+      supabase.from('Booking').select('*').eq('propertyId', currentProperty.id),
+      supabase.from('Room').select('*, RoomType!inner(*)').eq('RoomType.propertyId', currentProperty.id),
+      supabase.from('Payment').select('*').eq('tenantId', currentProperty.tenantId)
+    ]);
 
-  const folioItems = useLiveQuery(() => 
-    db.folioItems.where('propertyId').equals(currentProperty?.id || '').toArray()
-  , [currentProperty]);
+    setData({
+      bookings: bookingsRes.data || [],
+      rooms: roomsRes.data || [],
+      payments: paymentsRes.data || []
+    });
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [currentProperty]);
 
   // Derived Statistics
   const stats = useMemo(() => {
-    if (!bookings || !rooms || !folioItems) return null;
+    if (!data) return null;
+    const { bookings, rooms, payments } = data;
 
     const now = new Date();
     const start = range === 'current' ? startOfMonth(now) : startOfMonth(subMonths(now, 1));
@@ -72,31 +83,24 @@ export default function ReportsPage() {
       isWithinInterval(new Date(b.checkInDate), { start, end })
     );
 
-    // Filter relevant financial items
-    const filteredFolios = folioItems.filter(f => 
-      f.type !== 'PAYMENT' && 
-      f.type !== 'TAX' && // We focus on Net Revenue for ADR/RevPAR
-      isWithinInterval(new Date(f.updatedAt), { start, end })
-    );
-
-    // Calculations
-    const totalRevenue = filteredFolios.reduce((sum, item) => sum + item.amount, 0);
-    const occupiedNights = filteredBookings.length; // Simplified for this prototype
+    // Revenue calculation
+    const totalRevenue = filteredBookings.reduce((sum, b) => sum + Number(b.totalAmount || 0), 0);
+    const occupiedNights = filteredBookings.length; 
     const totalPossibleNights = totalRooms * daysInInterval.length;
 
-    const occupancyRate = (occupiedNights / totalPossibleNights) * 100;
+    const occupancyRate = totalPossibleNights > 0 ? (occupiedNights / totalPossibleNights) * 100 : 0;
     const adr = occupiedNights > 0 ? totalRevenue / occupiedNights : 0;
     const revpar = totalPossibleNights > 0 ? totalRevenue / totalPossibleNights : 0;
 
     // Daily Revenue Data for Chart
     const dailyData = daysInInterval.map(day => {
       const dayStr = format(day, 'MMM dd');
-      const dayRev = folioItems.filter(f => 
-        f.type !== 'PAYMENT' && 
-        format(new Date(f.updatedAt), 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd')
-      ).reduce((sum, item) => sum + item.amount, 0);
+      const dayRev = bookings.filter(b => 
+        b.status !== 'CANCELLED' &&
+        format(new Date(b.createdAt), 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd')
+      ).reduce((sum, b) => sum + Number(b.totalAmount || 0), 0);
 
-      return { name: dayStr, revenue: dayRev, occupancy: Math.floor(Math.random() * 20) + 60 }; // Random occ for visual demo
+      return { name: dayStr, revenue: dayRev };
     });
 
     // Source Distribution
@@ -114,30 +118,32 @@ export default function ReportsPage() {
       dailyData,
       sources: sources.filter(s => s.value > 0)
     };
-  }, [bookings, rooms, folioItems, range]);
+  }, [data, range]);
 
-  if (!stats) return (
+  if (loading || !stats) return (
     <div className="p-8 flex items-center justify-center h-[60vh]">
-      <div className="flex flex-col items-center gap-4">
-        <Activity className="h-8 w-8 text-primary animate-pulse" />
-        <p className="text-muted-foreground animate-pulse">Calculating Performance Metrics...</p>
+      <div className="flex flex-col items-center gap-4 text-center">
+        <Loader2 className="h-8 w-8 text-primary animate-spin" />
+        <p className="text-muted-foreground font-medium">Analyzing Performance Metrics...<br/>
+        <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Travels Puri 13</span>
+        </p>
       </div>
     </div>
   );
 
   return (
-    <div className="p-6 space-y-8 max-w-7xl mx-auto">
+    <div className="p-4 md:p-8 space-y-8 max-w-7xl mx-auto">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Property Performance</h1>
-          <p className="text-muted-foreground mt-1 text-sm md:text-base">Comprehensive analytics for {currentProperty?.name}</p>
+          <h1 className="text-3xl font-black tracking-tight text-foreground uppercase">Property Insights</h1>
+          <p className="text-muted-foreground mt-1 text-sm font-medium">Live analytics for {currentProperty?.name}</p>
         </div>
         
-        <div className="flex items-center bg-secondary/30 p-1 rounded-xl w-fit">
+        <div className="flex items-center bg-secondary/30 p-1 rounded-xl w-fit border shadow-sm">
           <Button 
             variant={range === 'current' ? 'default' : 'ghost'} 
             size="sm" 
-            className="rounded-lg font-bold"
+            className="rounded-lg font-bold text-xs"
             onClick={() => setRange('current')}
           >
             Current Month
@@ -145,7 +151,7 @@ export default function ReportsPage() {
           <Button 
             variant={range === 'last' ? 'default' : 'ghost'} 
             size="sm" 
-            className="rounded-lg font-bold"
+            className="rounded-lg font-bold text-xs"
             onClick={() => setRange('last')}
           >
             Last Month
@@ -156,7 +162,7 @@ export default function ReportsPage() {
       {/* High Level Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total Revenue', value: `₹${stats.revenue.toLocaleString()}`, sub: 'Net of taxes', icon: CreditCard, color: 'bg-blue-500' },
+          { label: 'Total Revenue', value: `₹${stats.revenue.toLocaleString()}`, sub: 'Booked value', icon: CreditCard, color: 'bg-blue-500' },
           { label: 'Occupancy Rate', value: `${stats.occupancy.toFixed(1)}%`, sub: 'Inventory utilized', icon: BedDouble, color: 'bg-emerald-500' },
           { label: 'ADR', value: `₹${stats.adr.toFixed(0)}`, sub: 'Avg Daily Rate', icon: TrendingUp, color: 'bg-violet-500' },
           { label: 'RevPAR', value: `₹${stats.revpar.toFixed(0)}`, sub: 'Rev Per Avail Room', icon: BarChart3, color: 'bg-amber-500' },
@@ -167,20 +173,17 @@ export default function ReportsPage() {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: i * 0.05 }}
           >
-            <Card className="premium-card relative overflow-hidden group">
+            <Card className="premium-card relative overflow-hidden group border-none shadow-sm">
               <CardContent className="p-6">
                 <div className="flex justify-between items-start relative z-10">
                   <div className={`p-2 rounded-xl ${item.color}/10 text-${item.color.split('-')[1]}-600`}>
                     <item.icon className="h-5 w-5" />
                   </div>
-                  <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-none font-bold text-[10px]">
-                    <ArrowUpRight className="h-3 w-3 mr-1" /> 12%
-                  </Badge>
                 </div>
                 <div className="mt-4 relative z-10">
-                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{item.label}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{item.label}</p>
                   <h3 className="text-2xl font-black mt-1">{item.value}</h3>
-                  <p className="text-[10px] text-muted-foreground mt-1">{item.sub}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1 font-medium">{item.sub}</p>
                 </div>
               </CardContent>
             </Card>
@@ -190,15 +193,12 @@ export default function ReportsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Revenue Chart */}
-        <Card className="lg:col-span-2 premium-card">
+        <Card className="lg:col-span-2 premium-card border-none shadow-sm overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
-              <CardTitle className="text-lg font-bold">Revenue & Occupancy Pulse</CardTitle>
-              <CardDescription>Daily performance trends for {range === 'current' ? 'Current Month' : 'Last Month'}</CardDescription>
+              <CardTitle className="text-lg font-bold">Revenue Pulse</CardTitle>
+              <CardDescription className="text-xs font-medium">Sales trends for {range === 'current' ? 'Current Month' : 'Last Month'}</CardDescription>
             </div>
-            <Button variant="outline" size="sm" className="rounded-xl font-bold gap-2">
-              <Download className="h-4 w-4" /> Export CSV
-            </Button>
           </CardHeader>
           <CardContent className="h-[350px] pt-4">
             <ResponsiveContainer width="100%" height="100%">
@@ -214,12 +214,10 @@ export default function ReportsPage() {
                   dataKey="name" 
                   axisLine={false} 
                   tickLine={false} 
-                  tick={{ fontSize: 10, fontWeight: 600, fill: '#94a3b8' }}
+                  tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }}
                   interval={4}
                 />
-                <YAxis 
-                  hide={true}
-                />
+                <YAxis hide={true} />
                 <Tooltip 
                   contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }}
                 />
@@ -227,7 +225,7 @@ export default function ReportsPage() {
                   type="monotone" 
                   dataKey="revenue" 
                   stroke="#0ea5e9" 
-                  strokeWidth={3}
+                  strokeWidth={4}
                   fillOpacity={1} 
                   fill="url(#colorRev)" 
                 />
@@ -237,10 +235,10 @@ export default function ReportsPage() {
         </Card>
 
         {/* Source Distribution */}
-        <Card className="premium-card">
+        <Card className="premium-card border-none shadow-sm">
           <CardHeader>
-            <CardTitle className="text-lg font-bold">Booking Sources</CardTitle>
-            <CardDescription>Market share of reservation channels</CardDescription>
+            <CardTitle className="text-lg font-bold text-center">Channels</CardTitle>
+            <CardDescription className="text-xs font-medium text-center">Reservation sources</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center justify-center pt-0 h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -250,21 +248,22 @@ export default function ReportsPage() {
                   cx="50%"
                   cy="50%"
                   innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={8}
+                  outerRadius={90}
+                  paddingAngle={10}
                   dataKey="value"
+                  stroke="none"
                 >
                   {stats.sources.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
                 <Tooltip />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', fontWeight: 'bold' }} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
-          <div className="p-6 border-t font-bold text-xs flex justify-between">
-            <span className="text-muted-foreground">Most Efficient Channel</span>
+          <div className="p-6 border-t font-bold text-[10px] flex justify-between uppercase tracking-widest">
+            <span className="text-muted-foreground">Top Channel</span>
             <span className="text-primary">{stats.sources[0]?.name || 'Direct'}</span>
           </div>
         </Card>

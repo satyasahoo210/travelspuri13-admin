@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useProperty } from '@/components/providers/property-provider';
-import { db, Guest } from '@/lib/db/dexie';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { createClient } from '@/lib/utils/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,7 +17,8 @@ import {
   Smile, 
   Paperclip,
   User,
-  CheckCheck
+  CheckCheck,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
@@ -26,13 +26,68 @@ import { cn } from '@/lib/utils';
 
 export default function MessagesPage() {
   const { currentProperty } = useProperty();
+  const supabase = createClient();
   const [search, setSearch] = useState('');
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const [guests, setGuests] = useState<any[]>([]);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const guests = useLiveQuery(() => 
-    db.guests.toArray()
-  , []);
+  const fetchGuests = async () => {
+    if (!currentProperty) return;
+    const { data } = await supabase
+      .from('Guest')
+      .select('*, Booking(id, status, BookingRoom(Room(roomNumber)))')
+      .eq('tenantId', currentProperty.tenantId);
+    
+    setGuests(data || []);
+    setLoading(false);
+  };
+
+  const fetchMessages = async (guestId: string) => {
+    const { data } = await supabase
+      .from('Message')
+      .select('*')
+      .eq('guestId', guestId)
+      .order('createdAt', { ascending: true });
+    
+    setMessages(data || []);
+  };
+
+  useEffect(() => {
+    fetchGuests();
+  }, [currentProperty]);
+
+  useEffect(() => {
+    if (selectedGuestId) {
+      fetchMessages(selectedGuestId);
+
+      // Subscribe to real-time messages
+      const channel = supabase
+        .channel(`guest-messages-${selectedGuestId}`)
+        .on('postgres_changes', { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'Message',
+          filter: `guestId=eq.${selectedGuestId}`
+        }, (payload) => {
+          setMessages(prev => [...prev, payload.new]);
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [selectedGuestId]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
 
   const filteredGuests = guests?.filter(g => 
     g.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -40,27 +95,41 @@ export default function MessagesPage() {
   );
 
   const selectedGuest = guests?.find(g => g.id === selectedGuestId);
+  const activeBooking = selectedGuest?.Booking?.find((b: any) => b.status === 'CHECKED_IN');
+  const roomNumber = activeBooking?.BookingRoom?.[0]?.Room?.roomNumber;
 
-  // Mock messages for UI demo
-  const [messages, setMessages] = useState([
-    { id: 1, guestId: 'g1', text: 'Hello, what is the WiFi password?', sender: 'guest', time: '10:15 AM' },
-    { id: 2, guestId: 'g1', text: 'Welcome! It is "travelspuri2026". Enjoy your stay!', sender: 'staff', time: '10:16 AM' },
-    { id: 3, guestId: 'g1', text: 'Thank you! Also, can I get extra towels?', sender: 'guest', time: '10:20 AM' },
-  ]);
-
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim() || !selectedGuestId) return;
+    if (!message.trim() || !selectedGuestId || !currentProperty) return;
     
-    setMessages([...messages, {
-      id: Date.now(),
+    const newMessage = {
       guestId: selectedGuestId,
-      text: message,
-      sender: 'staff',
-      time: format(new Date(), 'h:mm a')
-    }]);
+      bookingId: activeBooking?.id,
+      tenantId: currentProperty.tenantId,
+      content: message,
+      direction: 'OUTBOUND',
+      status: 'SENT',
+      channel: 'WHATSAPP'
+    };
+
+    // Optimistic update
+    const optimisticMsg = { ...newMessage, id: Date.now(), createdAt: new Date().toISOString() };
+    setMessages(prev => [...prev, optimisticMsg]);
     setMessage('');
+
+    const { error } = await supabase.from('Message').insert(newMessage);
+    if (error) {
+      console.error('Failed to send message:', error);
+      // Rollback or show error
+    }
   };
+
+  if (loading) return (
+    <div className="h-[60vh] flex flex-col items-center justify-center space-y-4">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <p className="text-muted-foreground font-bold uppercase tracking-widest text-[10px]">Syncing Conversations...</p>
+    </div>
+  );
 
   return (
     <div className="h-[calc(100vh-80px)] p-6 overflow-hidden flex gap-6">
@@ -69,11 +138,11 @@ export default function MessagesPage() {
         <div className="relative">
           <Input 
             placeholder="Search guests..." 
-            className="pl-10 rounded-xl bg-secondary/30 border-none shadow-inner"
+            className="pl-10 rounded-2xl bg-white/50 border-none shadow-sm h-12 font-medium"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-4 top-4 h-4 w-4 text-muted-foreground" />
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
@@ -83,27 +152,24 @@ export default function MessagesPage() {
               whileHover={{ x: 4 }}
               onClick={() => setSelectedGuestId(guest.id)}
               className={cn(
-                "p-3 rounded-2xl cursor-pointer transition-all flex items-center gap-3",
+                "p-4 rounded-[1.5rem] cursor-pointer transition-all flex items-center gap-4 border border-transparent",
                 selectedGuestId === guest.id 
-                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
-                  : "bg-card/40 hover:bg-card/80"
+                  ? "bg-slate-900 text-white shadow-xl shadow-slate-900/10" 
+                  : "bg-white hover:bg-slate-50 hover:border-slate-100 shadow-sm"
               )}
             >
               <div className={cn(
-                "w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0",
-                selectedGuestId === guest.id ? "bg-white/20" : "bg-primary/5 text-primary"
+                "w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xs shrink-0 rotate-3",
+                selectedGuestId === guest.id ? "bg-primary text-white" : "bg-slate-100 text-slate-400"
               )}>
-                {guest.name.split(' ').map(n => n[0]).join('')}
+                {guest.name.split(' ').map((n: string) => n[0]).join('')}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex justify-between items-baseline">
-                  <p className="font-bold truncate text-sm">{guest.name}</p>
-                  <span className={cn("text-[10px] opacity-60 font-medium", selectedGuestId === guest.id ? "text-white" : "text-muted-foreground")}>
-                    10:20 AM
-                  </span>
+                <div className="flex justify-between items-baseline mb-0.5">
+                  <p className="font-black truncate text-sm tracking-tight">{guest.name}</p>
                 </div>
-                <p className={cn("text-xs truncate opacity-70", selectedGuestId === guest.id ? "text-white" : "text-muted-foreground")}>
-                  {guest.phone || "No message history"}
+                <p className={cn("text-[10px] truncate font-bold uppercase tracking-widest", selectedGuestId === guest.id ? "text-white/60" : "text-muted-foreground")}>
+                  {guest.phone || "No History"}
                 </p>
               </div>
             </motion.div>
@@ -112,61 +178,63 @@ export default function MessagesPage() {
       </div>
 
       {/* Main Chat Area */}
-      <Card className="flex-1 flex flex-col premium-card overflow-hidden bg-card/10 backdrop-blur-md">
+      <Card className="flex-1 flex flex-col premium-card overflow-hidden bg-white/40 backdrop-blur-xl border-none shadow-2xl rounded-[2.5rem]">
         {selectedGuest ? (
           <>
             {/* Chat Header */}
-            <div className="p-4 border-b flex items-center justify-between bg-white/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
-                  {selectedGuest.name.split(' ').map(n => n[0]).join('')}
+            <div className="p-6 border-b flex items-center justify-between bg-white/80">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-black rotate-2 shadow-inner">
+                  {selectedGuest.name.split(' ').map((n: string) => n[0]).join('')}
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm">{selectedGuest.name}</h3>
+                  <h3 className="font-black text-base tracking-tight text-slate-900">{selectedGuest.name}</h3>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Active Stay • Room 204</span>
+                    <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
+                      {roomNumber ? `Active Stay • Room ${roomNumber}` : 'No Active Booking'}
+                    </span>
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" className="rounded-full hover:bg-primary/5">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
+                <Button variant="ghost" size="icon" className="rounded-2xl hover:bg-slate-100 h-10 w-10">
+                  <Phone className="h-4 w-4 text-slate-600" />
                 </Button>
-                <Button variant="ghost" size="icon" className="rounded-full hover:bg-primary/5">
-                  <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                <Button variant="ghost" size="icon" className="rounded-2xl hover:bg-slate-100 h-10 w-10">
+                  <MoreVertical className="h-4 w-4 text-slate-600" />
                 </Button>
               </div>
             </div>
 
             {/* Messages List */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-slate-50/30">
                <div className="flex justify-center">
-                  <Badge variant="secondary" className="bg-secondary/50 text-[10px] font-bold py-1 px-3">Today</Badge>
+                  <Badge variant="secondary" className="bg-white/80 text-slate-400 text-[10px] font-black uppercase tracking-widest py-1.5 px-4 shadow-sm">Interaction History</Badge>
                </div>
 
                <AnimatePresence initial={false}>
                   {messages.map((msg) => (
                     <motion.div
                       key={msg.id}
-                      initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       className={cn(
-                        "flex flex-col max-w-[80%]",
-                        msg.sender === 'staff' ? "ml-auto items-end" : "mr-auto items-start"
+                        "flex flex-col max-w-[75%]",
+                        msg.direction === 'OUTBOUND' ? "ml-auto items-end" : "mr-auto items-start"
                       )}
                     >
                       <div className={cn(
-                        "p-4 rounded-3xl text-sm leading-relaxed",
-                        msg.sender === 'staff' 
-                          ? "bg-primary text-primary-foreground rounded-tr-none shadow-md" 
-                          : "bg-white rounded-tl-none shadow-sm border border-border/50"
+                        "p-5 rounded-[2rem] text-sm font-medium leading-relaxed shadow-sm",
+                        msg.direction === 'OUTBOUND' 
+                          ? "bg-slate-900 text-white rounded-tr-none shadow-xl shadow-slate-900/10" 
+                          : "bg-white text-slate-700 rounded-tl-none border border-slate-100"
                       )}>
-                        {msg.text}
+                        {msg.content}
                       </div>
-                      <div className="flex items-center gap-1 mt-1 font-bold text-[10px] text-muted-foreground/60 px-2 uppercase tracking-tight">
-                        {msg.time}
-                        {msg.sender === 'staff' && <CheckCheck className="h-3 w-3 text-primary/60" />}
+                      <div className="flex items-center gap-2 mt-2 font-black text-[9px] text-slate-400 px-2 uppercase tracking-widest">
+                        {format(new Date(msg.createdAt), 'h:mm a')}
+                        {msg.direction === 'OUTBOUND' && <CheckCheck className="h-3 w-3 text-primary" />}
                       </div>
                     </motion.div>
                   ))}
@@ -174,36 +242,36 @@ export default function MessagesPage() {
             </div>
 
             {/* Message Input */}
-            <div className="p-4 bg-white/50 border-t">
-              <form onSubmit={handleSendMessage} className="flex items-center gap-3">
-                <Button type="button" variant="ghost" size="icon" className="rounded-full hover:bg-secondary shrink-0">
-                  <Paperclip className="h-5 w-5 text-muted-foreground" />
+            <div className="p-6 bg-white border-t">
+              <form onSubmit={handleSendMessage} className="flex items-center gap-4">
+                <Button type="button" variant="ghost" size="icon" className="rounded-2xl hover:bg-slate-100 shrink-0 h-12 w-12">
+                  <Paperclip className="h-5 w-5 text-slate-400" />
                 </Button>
                 <div className="relative flex-1">
                   <Input 
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     placeholder="Type your message..." 
-                    className="pr-12 py-6 rounded-2xl bg-secondary/30 border-none shadow-inner focus-visible:ring-primary/20"
+                    className="pr-12 h-14 rounded-2xl bg-slate-100 border-none shadow-inner focus-visible:ring-primary/20 font-medium"
                   />
-                  <Button type="button" variant="ghost" size="icon" className="absolute right-2 top-2 rounded-full hover:bg-transparent">
-                    <Smile className="h-5 w-5 text-muted-foreground hover:text-primary transition-colors" />
+                  <Button type="button" variant="ghost" size="icon" className="absolute right-2 top-2 rounded-xl hover:bg-transparent h-10 w-10">
+                    <Smile className="h-5 w-5 text-slate-400 hover:text-primary transition-colors" />
                   </Button>
                 </div>
-                <Button type="submit" className="h-12 w-12 rounded-2xl shadow-lg shadow-primary/20 shrink-0">
-                  <Send className="h-5 w-5" />
+                <Button type="submit" className="h-14 px-8 rounded-2xl shadow-xl shadow-primary/20 shrink-0 font-black uppercase tracking-widest text-[11px] gap-3">
+                  <Send className="h-4 w-4" /> Send
                 </Button>
               </form>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-12 text-center space-y-4">
-            <div className="p-6 bg-primary/5 rounded-full">
-              <MessageSquare className="h-12 w-12 text-primary/20" />
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-12 text-center space-y-6">
+            <div className="w-24 h-24 bg-slate-50 rounded-[2.5rem] flex items-center justify-center rotate-6 shadow-inner">
+              <MessageSquare className="h-10 w-10 text-primary/30" />
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-foreground">Select a Guest</h3>
-              <p className="max-w-xs text-sm mt-1">Select a guest from the list to view your interaction history and respond to requests.</p>
+            <div className="space-y-2">
+              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Messaging Hub</h3>
+              <p className="max-w-xs text-sm font-medium text-slate-400">Select a guest from the list to view your interaction history and respond to requests.</p>
             </div>
           </div>
         )}
