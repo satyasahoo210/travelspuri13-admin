@@ -37,9 +37,9 @@ CREATE TABLE "Property" (
     "address" TEXT NOT NULL,
     "timezone" TEXT NOT NULL,
     "tenantId" UUID NOT NULL REFERENCES "Tenant"("id") ON DELETE CASCADE,
-    "taxPercentage" DOUBLE PRECISION DEFAULT 0,
-    "checkInTime" TIME DEFAULT '08:00',
-    "checkOutTime" TIME DEFAULT '07:00',
+    "taxPercentage" DOUBLE PRECISION DEFAULT 0, -- DEPRECATED: Use settings->>'taxAmount'
+    "checkInTime" TIME DEFAULT '08:00', -- DEPRECATED: Use settings->>'checkinTime'
+    "checkOutTime" TIME DEFAULT '07:00', -- DEPRECATED: Use settings->>'checkoutTime'
     "logoUrl" TEXT,
     "createdAt" TIMESTAMPTZ DEFAULT now(),
     "updatedAt" TIMESTAMPTZ DEFAULT now()
@@ -445,6 +445,9 @@ DECLARE
     final_total DECIMAL(10, 2) := 0;
     nights INTEGER := 1;
     booking_record RECORD;
+    tax_enabled BOOLEAN := TRUE;
+    effective_tax_rate DECIMAL(10, 2);
+    effective_checkout_time TIME;
 BEGIN
     -- Determine the booking ID based on the table firing the trigger
     IF TG_TABLE_NAME = 'Booking' THEN
@@ -456,7 +459,7 @@ BEGIN
     END IF;
 
     -- Get booking details and linked property details
-    SELECT b.*, p."taxPercentage", p."checkOutTime" as prop_checkout_time
+    SELECT b.*, p."taxPercentage", p."checkOutTime" as prop_checkout_time, p."settings" as prop_settings
     INTO booking_record
     FROM "Booking" b
     JOIN "Property" p ON b."propertyId" = p.id
@@ -467,12 +470,21 @@ BEGIN
         RETURN NULL;
     END IF;
 
+    -- Get settings from JSON (with fallbacks to columns)
+    tax_enabled := COALESCE((booking_record.prop_settings->>'defaultTaxEnabled')::BOOLEAN, TRUE);
+    
+    -- Prefer settings taxAmount, fallback to property taxPercentage
+    effective_tax_rate := COALESCE((booking_record.prop_settings->>'taxAmount')::DECIMAL, booking_record."taxPercentage", 0);
+    
+    -- Prefer settings checkoutTime, fallback to property checkOutTime
+    effective_checkout_time := COALESCE((booking_record.prop_settings->>'checkoutTime')::TIME, booking_record.prop_checkout_time, '07:00:00'::TIME);
+
     -- Calculate nights logic
     -- 1. Base nights = calendar days difference
     nights := (booking_record."checkOutDate"::DATE - booking_record."checkInDate"::DATE);
     
     -- 2. If checkout time is after property's checkout time, add 1 night
-    IF booking_record."checkOutDate"::TIME > booking_record.prop_checkout_time THEN
+    IF booking_record."checkOutDate"::TIME > effective_checkout_time THEN
         nights := nights + 1;
     END IF;
 
@@ -507,8 +519,12 @@ BEGIN
         discount_val := COALESCE(booking_record."discountAmount", 0);
     END IF;
 
-    -- Calculate tax on the post-discount subtotal
-    tax_val := (subtotal - discount_val) * (COALESCE(booking_record."taxPercentage", 0) / 100);
+    -- Calculate tax
+    IF tax_enabled THEN
+        tax_val := (subtotal - discount_val) * (effective_tax_rate / 100.0);
+    ELSE
+        tax_val := 0;
+    END IF;
 
     -- Final total calculation
     final_total := subtotal - discount_val + tax_val;
@@ -568,3 +584,12 @@ CREATE POLICY "Authenticated Delete Guests" ON storage.objects FOR DELETE USING 
 -- Migration for enhancements (May 2026)
 ALTER TABLE "Guest" ADD COLUMN IF NOT EXISTS "grNumber" TEXT;
 ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "actualCheckOut" TIMESTAMPTZ;
+
+-- Flexible Branding and Configuration (JSON-based)
+ALTER TABLE "Property" ADD COLUMN IF NOT EXISTS "settings" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE "Property" ADD COLUMN IF NOT EXISTS "photos" TEXT[];
+
+ALTER TABLE "RoomType" ADD COLUMN IF NOT EXISTS "photos" TEXT[];
+
+ALTER TABLE "Guest" ADD COLUMN IF NOT EXISTS "preferences" TEXT;
+ALTER TABLE "Guest" ADD COLUMN IF NOT EXISTS "notes" TEXT;
