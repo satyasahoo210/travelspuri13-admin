@@ -1,5 +1,7 @@
 import { Providers } from "@/app/providers";
 import { BottomNav, Sidebar } from "@/components/layout/navigation";
+import { NavWrapper } from "@/components/layout/nav-wrapper";
+import { PWAProvider } from "@/components/layout/pwa-provider";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { PropertyProvider } from "@/components/providers/property-provider";
 import { SyncProvider } from "@/components/providers/sync-provider";
@@ -37,18 +39,16 @@ export default function RootLayout({
       <body className={`${sans.variable} ${heading.variable} font-sans antialiased`}>
         <Providers>
           <AuthProvider>
-            <PropertyProvider>
-              <SyncProvider>
-                <div className="flex min-h-screen">
-                  <Sidebar />
-                  <main className="flex-1 pb-20 md:pb-0">
+            <PWAProvider>
+              <PropertyProvider>
+                <SyncProvider>
+                  <NavWrapper>
                     <SyncIndicator />
                     {children}
-                  </main>
-                  <BottomNav />
-                </div>
-              </SyncProvider>
-            </PropertyProvider>
+                  </NavWrapper>
+                </SyncProvider>
+              </PropertyProvider>
+            </PWAProvider>
           </AuthProvider>
         </Providers>
       </body>
