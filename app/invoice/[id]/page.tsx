@@ -1,13 +1,16 @@
 'use client';
 
 import { useProperty } from '@/components/providers/property-provider';
-import { createClient } from '@/lib/utils/supabase/client';
-import { useParams } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Printer, Download, ArrowLeft, Hotel, MapPin, Phone, Globe, Mail, Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { generateInvoicePDF } from '@/lib/finance/invoice-pdf';
+import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/utils/supabase/client';
+import { differenceInCalendarDays, format } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
+import { ArrowLeft, CreditCard, Download, Globe, Hotel, Loader2, Mail, MapPin, Phone, Printer, Receipt } from 'lucide-react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 export default function InvoicePage() {
@@ -58,19 +61,71 @@ export default function InvoicePage() {
     </div>
   );
 
-  const { booking, billing, roomCharges, serviceCharges, payments } = data;
+  const { booking, roomCharges, serviceCharges, payments } = data;
   const guest = booking.Guest;
   const property = booking.Property;
   const settings = property.settings || {};
 
-  const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
-  const grandTotal = Number(billing?.totalAmount || booking.totalAmount || 0);
-  const taxAmount = Number(billing?.taxAmount || 0);
-  const subtotal = grandTotal - taxAmount;
-  const balanceDue = grandTotal - totalPaid;
+  // Calculation Logic (Mirrored from BookingDetailPage)
+  const calculateTotals = () => {
+    const checkInDate = new Date(booking.checkInDate);
+    const checkOutDate = new Date(booking.checkOutDate);
+    
+    let nights = differenceInCalendarDays(checkOutDate, checkInDate);
+    const checkOutTimeStr = format(checkOutDate, 'HH:mm:ss');
+    const propCheckOutTime = settings?.checkoutTime 
+      ? `${settings.checkoutTime}:00`
+      : (property.checkOutTime || '07:00:00');
 
-  const handlePrint = () => {
-    window.print();
+    if (checkOutTimeStr > propCheckOutTime) nights += 1;
+    if (booking.waiveLastDayCharge) nights -= 1;
+    nights = Math.max(1, nights);
+
+    const roomSubtotal = roomCharges.reduce(
+      (sum, item) => sum + (Number(item.priceOverride) || Number(item.RoomType?.defaultPrice) || 0),
+      0
+    );
+    const totalRoomCharges = roomSubtotal * nights;
+    const serviceSubtotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice), 0);
+    const subtotal = totalRoomCharges + serviceSubtotal;
+    
+    const discountAmount = booking.discountType === 'PERCENTAGE'
+      ? subtotal * (Number(booking.discountAmount) / 100)
+      : Number(booking.discountAmount || 0);
+
+    const taxRate = (settings?.taxAmount ?? property?.taxPercentage ?? 0) / 100;
+    const tax = (subtotal - discountAmount) * taxRate;
+    const grandTotal = subtotal - discountAmount + tax;
+
+    const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+
+    return {
+      nights,
+      roomTotal: totalRoomCharges,
+      serviceTotal: serviceSubtotal,
+      subtotal,
+      discount: discountAmount,
+      tax,
+      total: grandTotal,
+      totalPaid,
+      balance: Math.max(0, grandTotal - totalPaid)
+    };
+  };
+
+  const totals = calculateTotals();
+
+  const handleDownload = async () => {
+    await generateInvoicePDF(
+      booking,
+      roomCharges,
+      serviceCharges,
+      property,
+      payments,
+      {
+        ...totals,
+        showTax: true
+      }
+    );
   };
 
   return (
@@ -83,10 +138,7 @@ export default function InvoicePage() {
           </Button>
         </Link>
         <div className="flex gap-3">
-          <Button variant="outline" className="gap-2 font-bold rounded-xl bg-white" onClick={handlePrint}>
-            <Printer className="h-4 w-4" /> Print Invoice
-          </Button>
-          <Button className="gap-2 font-bold rounded-xl shadow-lg">
+          <Button className="gap-2 font-bold rounded-xl shadow-lg bg-slate-900" onClick={handleDownload}>
             <Download className="h-4 w-4" /> Download PDF
           </Button>
         </div>
@@ -105,10 +157,10 @@ export default function InvoicePage() {
               <h1 className="text-2xl font-black uppercase tracking-tight">{property?.name}</h1>
             </div>
             <div className="space-y-1 text-sm opacity-70 font-medium">
-              <p className="flex items-center gap-2"><MapPin className="h-3 w-3" /> {property?.address || 'Puri, Odisha'}</p>
-              <p className="flex items-center gap-2"><Phone className="h-3 w-3" /> {settings?.phone || '+91 98765 43210'}</p>
-              <p className="flex items-center gap-2"><Mail className="h-3 w-3" /> {settings?.email || `info@${property?.name.toLowerCase().replace(/\s/g, '')}.com`}</p>
-              <p className="flex items-center gap-2"><Globe className="h-3 w-3" /> {settings?.website || `www.${property?.name.toLowerCase().replace(/\s/g, '')}.com`}</p>
+              {property?.address && <p className="flex items-center gap-2"><MapPin className="h-3 w-3" /> {property.address}</p>}
+              {settings?.phone && <p className="flex items-center gap-2"><Phone className="h-3 w-3" /> {settings.phone}</p>}
+              {settings?.email && <p className="flex items-center gap-2"><Mail className="h-3 w-3" /> {settings.email}</p>}
+              {settings?.website && <p className="flex items-center gap-2"><Globe className="h-3 w-3" /> {settings.website}</p>}
             </div>
           </div>
           <div className="text-right flex flex-col justify-between items-end relative z-10">
@@ -146,15 +198,20 @@ export default function InvoicePage() {
             <div className="space-y-3">
               <div className="flex justify-between md:justify-end gap-6 text-sm">
                 <span className="text-muted-foreground font-medium">Check-in</span>
-                <span className="font-black text-slate-900">{format(new Date(booking.checkInDate), 'dd MMM yyyy')}</span>
+                <span className="font-black text-slate-900">{format(new Date(booking.checkInDate), 'dd MMM yyyy, hh:mm a')}</span>
               </div>
               <div className="flex justify-between md:justify-end gap-6 text-sm">
                 <span className="text-muted-foreground font-medium">Check-out</span>
-                <span className="font-black text-slate-900">{format(new Date(booking.checkOutDate), 'dd MMM yyyy')}</span>
+                <span className="font-black text-slate-900">{format(new Date(booking.checkOutDate), 'dd MMM yyyy, hh:mm a')}</span>
               </div>
               <div className="flex justify-between md:justify-end gap-6 text-sm pt-2">
                 <span className="text-muted-foreground font-medium">Status</span>
-                <Badge className="rounded-lg h-6 px-3 font-black uppercase text-[9px] bg-slate-900">
+                <Badge className={cn(
+                  "rounded-lg h-6 px-3 font-black uppercase text-[9px] border-none",
+                  booking.status === 'CONFIRMED' ? 'bg-emerald-50 text-emerald-600' :
+                  booking.status === 'CHECKED_IN' ? 'bg-blue-50 text-blue-600' :
+                  'bg-slate-100 text-slate-600'
+                )}>
                   {booking.status}
                 </Badge>
               </div>
@@ -174,19 +231,17 @@ export default function InvoicePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {roomCharges.map((item) => (
-                <tr key={item.id} className="group hover:bg-slate-50/50">
-                  <td className="py-6">
-                    <p className="font-black text-slate-900 text-base">{item.RoomType?.name || 'Room Stay'}</p>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight mt-0.5">
-                      Accommodation • Base Rate ₹{Number(item.RoomType?.defaultPrice || 0).toLocaleString()}
-                    </p>
-                  </td>
-                  <td className="py-6 text-right font-black text-slate-600">{item.quantity || 1}</td>
-                  <td className="py-6 text-right font-black text-slate-600">₹{Number(item.priceOverride || item.RoomType?.defaultPrice || 0).toLocaleString()}</td>
-                  <td className="py-6 text-right font-black text-slate-900">₹{Number((item.priceOverride || item.RoomType?.defaultPrice || 0) * (item.quantity || 1)).toLocaleString()}</td>
-                </tr>
-              ))}
+              <tr className="group hover:bg-slate-50/50">
+                <td className="py-6">
+                  <p className="font-black text-slate-900 text-base">Accommodation</p>
+                  <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight mt-0.5">
+                    {totals.nights} Night(s) Stay • {roomCharges.length} Room(s)
+                  </p>
+                </td>
+                <td className="py-6 text-right font-black text-slate-600">1</td>
+                <td className="py-6 text-right font-black text-slate-600">₹{totals.roomTotal.toLocaleString()}</td>
+                <td className="py-6 text-right font-black text-slate-900">₹{totals.roomTotal.toLocaleString()}</td>
+              </tr>
               {serviceCharges.map((item) => (
                 <tr key={item.id} className="group hover:bg-slate-50/50">
                   <td className="py-6">
@@ -208,28 +263,55 @@ export default function InvoicePage() {
             <div className="w-full md:w-80 space-y-4">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground font-bold uppercase tracking-widest text-[10px]">Subtotal</span>
-                <span className="font-black text-slate-900">₹{subtotal.toLocaleString()}</span>
+                <span className="font-black text-slate-900">₹{totals.subtotal.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground font-bold uppercase tracking-widest text-[10px]">Discount</span>
+                <span className="font-black text-emerald-600">- ₹{totals.discount.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground font-bold uppercase tracking-widest text-[10px]">Tax / GST</span>
-                <span className="font-black text-slate-900">₹{taxAmount.toLocaleString()}</span>
+                <span className="font-black text-slate-900">₹{totals.tax.toLocaleString()}</span>
               </div>
               <div className="flex justify-between items-center py-6 border-y-2 border-slate-100">
                 <span className="font-black text-xl uppercase tracking-tighter text-slate-900">Grand Total</span>
-                <span className="text-3xl font-black text-primary">₹{grandTotal.toLocaleString()}</span>
+                <span className="text-3xl font-black text-primary">₹{totals.total.toLocaleString()}</span>
               </div>
-              {totalPaid > 0 && (
+              {totals.totalPaid > 0 && (
                 <div className="flex justify-between text-xs py-1 font-black text-emerald-600 uppercase tracking-widest">
                   <span>Payments Received</span>
-                  <span>- ₹{totalPaid.toLocaleString()}</span>
+                  <span>- ₹{totals.totalPaid.toLocaleString()}</span>
                 </div>
               )}
               <div className="flex justify-between items-center py-5 bg-slate-900 text-white rounded-3xl px-6 mt-6 shadow-xl shadow-slate-900/20">
                 <span className="font-black text-[10px] uppercase tracking-[0.2em] opacity-60">Balance Due</span>
-                <span className="text-2xl font-black">₹{balanceDue.toLocaleString()}</span>
+                <span className="text-2xl font-black">₹{totals.balance.toLocaleString()}</span>
               </div>
             </div>
           </div>
+
+          {/* Payment History Section */}
+          {payments.length > 0 && (
+            <div className="mt-12 space-y-6">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Payment Transaction History</h4>
+              <div className="space-y-3">
+                {payments.map((p) => (
+                  <div key={p.id} className="flex justify-between items-center p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
+                        <CreditCard className="h-5 w-5 text-slate-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-slate-900">{p.method}</p>
+                        <p className="text-[10px] font-bold text-slate-400">{format(new Date(p.createdAt ?? ''), 'dd MMM yyyy, hh:mm a')}</p>
+                      </div>
+                    </div>
+                    <p className="font-black text-emerald-600">₹{Number(p.amount).toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer / Terms */}

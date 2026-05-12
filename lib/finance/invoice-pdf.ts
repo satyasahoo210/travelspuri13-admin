@@ -239,16 +239,26 @@ export const generateInvoicePDF = async (
   
     currentY += 8
     const col1 = margin + 5
-    const col2 = pageWidth / 2 + 5
-    const labelW = 35
+    const col2 = pageWidth / 2 + 10
+    const labelW = 28
   
-    const drawDetail = (label: string, value: string, x: number, y: number) => {
+    const drawDetail = (label: string, value: string, x: number, y: number, isWrapped = false) => {
       doc.setFont('helvetica', 'bold')
       doc.setTextColor(100, 116, 139)
       doc.text(label, x, y)
       doc.setFont('helvetica', 'normal')
       doc.setTextColor(30, 41, 59)
-      doc.text(String(value || 'N/A'), x + labelW, y)
+      
+      const valStr = String(value || 'N/A')
+      if (isWrapped) {
+        const maxWidth = (pageWidth / 2) - margin - labelW
+        const lines = doc.splitTextToSize(valStr, maxWidth)
+        doc.text(lines, x + labelW, y)
+        return lines.length
+      } else {
+        doc.text(valStr, x + labelW, y)
+        return 1
+      }
     }
   
     drawDetail('Guest Name:', folio.Guest!.name, col1, currentY)
@@ -271,13 +281,17 @@ export const generateInvoicePDF = async (
     drawDetail('Channel:', folio.source || 'Direct', col2, currentY)
   
     currentY += 7
-    drawDetail('Address:', folio.Guest?.address || 'N/A', col1, currentY)
+    const addressLinesCount = drawDetail('Address:', folio.Guest?.address || 'N/A', col1, currentY, true)
     drawDetail(
       'Check-In:',
       format(new Date(folio.checkInDate), 'dd MMM yyyy, hh:mm a'),
       col2,
       currentY,
     )
+
+    if (addressLinesCount > 1) {
+      currentY += (addressLinesCount - 1) * 5
+    }
   
     currentY += 7
     drawDetail(
