@@ -309,7 +309,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="flex flex-col p-8 space-y-8 gap-1">
             {recentActivity.length > 0 ? recentActivity.map((item, i) => (
-              <Link key={i} href={item.status === 'BOOKED' ? '/bookings' : `/bookings?id=${item.bookingId}`}>
+              <Link key={i} href={`/bookings/${item.bookingId}`}>
                 <motion.div 
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}

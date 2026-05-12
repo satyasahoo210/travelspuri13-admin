@@ -69,7 +69,7 @@ export function Sidebar() {
             <span
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group font-bold text-sm',
-                pathname === item.href
+                pathname === item.href || (item.href === '/bookings' && pathname.startsWith('/bookings/'))
                   ? 'bg-primary text-white shadow-lg shadow-primary/20'
                   : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900',
               )}
@@ -130,7 +130,7 @@ export function BottomNav() {
           <div
             className={cn(
               'flex flex-col items-center gap-1 p-2 rounded-xl transition-all',
-              pathname === item.href ? 'text-primary scale-110' : 'text-slate-400',
+              pathname === item.href || (item.href === '/bookings' && pathname.startsWith('/bookings/')) ? 'text-primary scale-110' : 'text-slate-400',
             )}
           >
             <item.icon className="h-5 w-5" />

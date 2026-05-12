@@ -35,7 +35,7 @@ export default function NewBookingPage() {
         <main className="bg-white rounded-lg shadow-2xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
           <div className="p-8">
             <BookingForm 
-              onSuccess={() => router.push('/bookings')} 
+              onSuccess={(id: string) => router.push(`/bookings/${id}`)} 
             />
           </div>
         </main>

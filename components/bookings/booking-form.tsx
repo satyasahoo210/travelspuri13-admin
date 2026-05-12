@@ -27,7 +27,7 @@ export function BookingForm({
   onSuccess,
   initialData,
 }: {
-  onSuccess?: () => void
+  onSuccess?: (id: string) => void
   initialData?: {
     roomId?: string
     checkIn?: string
@@ -173,9 +173,12 @@ export function BookingForm({
         finalGuestId = newGuest.id
       }
 
+      const checkinTime = currentProperty?.settings?.checkinTime || "08:00"
+      const checkoutTime = currentProperty?.settings?.checkoutTime || "07:00"
+
       // Timezone parsing
-      let checkInDateStr = formData.checkIn
-      let checkOutDateStr = formData.checkOut
+      let checkInDateStr = formData.checkIn + " " + checkinTime
+      let checkOutDateStr = formData.checkOut + " " + checkoutTime
 
       if (currentProperty.timezone) {
         const timeZone = currentProperty.timezone
@@ -231,7 +234,7 @@ export function BookingForm({
         if (brError) throw brError
       }
 
-      if (onSuccess) onSuccess()
+      if (onSuccess) onSuccess(booking.id)
     } catch (err) {
       console.error('Error creating booking:', err)
     } finally {
@@ -359,7 +362,6 @@ export function BookingForm({
             <Input
               type="file"
               accept="image/*,.pdf"
-              className="pt-3 bg-white"
               onChange={(e) =>
                 setQuickGuest({
                   ...quickGuest,
@@ -401,7 +403,7 @@ export function BookingForm({
         <div className="space-y-2">
           <Label>Check-in</Label>
           <Input
-            type="datetime-local"
+            type="date"
             required
             className="h-12 rounded-xl"
             value={formData.checkIn}
@@ -413,7 +415,7 @@ export function BookingForm({
         <div className="space-y-2">
           <Label>Check-out</Label>
           <Input
-            type="datetime-local"
+            type="date"
             required
             className="h-12 rounded-xl"
             value={formData.checkOut}

@@ -19,7 +19,6 @@ import {
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
-import { BookingDetails } from '@/components/bookings/booking-details'
 import { useProperty } from '@/components/providers/property-provider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tables } from '@/database.types'
@@ -38,8 +37,6 @@ type Booking = Tables<'Booking'> & {
 export default function BookingsPage() {
   const router = useRouter()
   const [search, setSearch] = useState('')
-  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [bookings, setBookings] = useState<Booking[] | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -67,24 +64,13 @@ export default function BookingsPage() {
   }
 
   useEffect(() => {    
-    if (!isDetailsOpen && currentProperty) {
-      const interval = setInterval(function repeatedFetchBookings() {
+    if (currentProperty) {
         fetchBookings()
-        return repeatedFetchBookings;
-      }(), 30000) // 30 seconds
-
-      return () => clearInterval(interval)
     }
-  }, [isDetailsOpen, currentProperty])
+  }, [currentProperty])
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleBookingClick = (booking: any) => {
-    setSelectedBooking({
-      ...booking,
-      checkInDate: new Date(booking.checkInDate),
-      checkOutDate: new Date(booking.checkOutDate),
-    })
-    setIsDetailsOpen(true)
+    router.push(`/bookings/${booking.id}`)
   }
 
   const filteredBookings = bookings?.filter(
@@ -212,14 +198,6 @@ export default function BookingsPage() {
         </TabsContent>
       </Tabs>
 
-      {selectedBooking && (
-        <BookingDetails
-          open={isDetailsOpen}
-          onOpenChange={setIsDetailsOpen}
-          booking={selectedBooking}
-          onRefresh={fetchBookings}
-        />
-      )}
     </div>
   )
 }

@@ -303,33 +303,39 @@ export const generateInvoicePDF = async (
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(30, 41, 59)
     doc.text('ROOM DETAILS', margin, currentY)
-    currentY += 4
+    currentY += 7
   
-    const roomData = assignments.map((a) => [
-      a.RoomType?.name || 'Standard Room',
-      a.Room?.roomNumber || 'N/A',
-      `INR ${Number(a.priceOverride || a.RoomType?.defaultPrice || 0).toLocaleString()}`,
-    ])
+    const roomNumbers = assignments.map((a) => a.Room?.roomNumber).filter(Boolean).join(', ')
+    doc.setFont('helvetica', 'normal')
+    doc.text('Room No.: ' + roomNumbers, margin, currentY)
+
+    currentY += 12
+
+    // const roomData = assignments.map((a) => [
+    //   a.RoomType?.name || 'Standard Room',
+    //   a.Room?.roomNumber || 'N/A',
+    //   `INR ${Number(a.priceOverride || a.RoomType?.defaultPrice || 0).toLocaleString()}`,
+    // ])
   
-    autoTable(doc, {
-      startY: currentY,
-      head: [['Room Type', 'Room No.', 'Daily Rate']],
-      body: roomData,
-      theme: 'grid',
-      headStyles: {
-        fillColor: [51, 65, 85],
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-      },
-      styles: { fontSize: 9, cellPadding: 3 },
-      margin: { left: margin, right: margin },
-    })
+    // autoTable(doc, {
+    //   startY: currentY,
+    //   head: [['Room Type', 'Room No.', 'Daily Rate']],
+    //   body: roomData,
+    //   theme: 'grid',
+    //   headStyles: {
+    //     fillColor: [51, 65, 85],
+    //     textColor: [255, 255, 255],
+    //     fontStyle: 'bold',
+    //   },
+    //   styles: { fontSize: 9, cellPadding: 3 },
+    //   margin: { left: margin, right: margin },
+    // })
   
     // --- 4.1 Charges ---
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    currentY = (doc as any).lastAutoTable.finalY + 12
+    // currentY = (doc as any).lastAutoTable.finalY + 12
     doc.setFont('helvetica', 'bold')
     doc.text('CHARGES & SERVICES', margin, currentY)
+    currentY += 7
     const totalNights = totals.nights
     const chargesData: Array<string[]> = []
   

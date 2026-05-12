@@ -410,6 +410,16 @@ export function CalendarGrid({
                 CALL PRIMARY GUEST
               </a>
               <Button
+                variant="default"
+                onClick={() => {
+                  window.location.href = `/bookings/${selectedAssignment?.bookingId}`
+                }}
+                className="w-full h-16 rounded-2xl bg-slate-900 shadow-xl shadow-slate-900/10 font-heading font-black tracking-tighter text-xl hover:scale-[1.02] transition-transform flex items-center justify-center gap-3 text-white"
+              >
+                <ArrowRight className="w-5 h-5" />
+                MANAGE BOOKING
+              </Button>
+              <Button
                 variant="outline"
                 onClick={() => setSelectedAssignment(null)}
                 className="w-full h-14 rounded-2xl border-slate-200 font-heading font-black tracking-tighter text-lg hover:bg-slate-50 transition-colors"
@@ -436,9 +446,9 @@ export function CalendarGrid({
             {isCreatingBooking && (
               <BookingForm
                 initialData={newBookingData}
-                onSuccess={() => {
+                onSuccess={(id) => {
                   setIsCreatingBooking(false)
-                  window.location.reload()
+                  window.location.href = `/bookings/${id}`
                 }}
               />
             )}

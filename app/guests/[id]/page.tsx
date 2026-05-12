@@ -20,6 +20,7 @@ import {
   Star,
   User
 } from 'lucide-react'
+import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
@@ -37,6 +38,7 @@ export default function GuestProfilePage() {
   const { id } = useParams<{id: string}>()
   const [guest, setGuest] = useState<GuestWithHistory | null>(null)
   const [loading, setLoading] = useState(true)
+  const [idProofUrl, setIdProofUrl] = useState<string | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -59,6 +61,16 @@ export default function GuestProfilePage() {
         console.error('Error fetching guest data:', error)
       } else {
         setGuest(data as any)
+        
+        // Fetch signed URL if path exists
+        if (data.idProofUrl && !data.idProofUrl.startsWith('http')) {
+          const { data: signedData } = await supabase.storage
+            .from('guests')
+            .createSignedUrl(data.idProofUrl, 3600) // 1 hour expiry
+          if (signedData) setIdProofUrl(signedData.signedUrl)
+        } else if (data.idProofUrl) {
+          setIdProofUrl(data.idProofUrl)
+        }
       }
       setLoading(false)
     }
@@ -187,11 +199,11 @@ export default function GuestProfilePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {guest.idProofUrl ? (
+              {idProofUrl ? (
                 <div className="relative group rounded-2xl overflow-hidden border border-slate-200">
                   <div className="aspect-[4/3] bg-slate-100 flex items-center justify-center">
                     <img 
-                      src={guest.idProofUrl} 
+                      src={idProofUrl} 
                       alt="ID Proof" 
                       className="object-cover w-full h-full"
                     />
@@ -201,7 +213,7 @@ export default function GuestProfilePage() {
                       variant="secondary" 
                       size="sm" 
                       className="rounded-xl font-black tracking-tighter"
-                      onClick={() => window.open(guest.idProofUrl!, '_blank')}
+                      onClick={() => window.open(idProofUrl, '_blank')}
                     >
                       <ExternalLink className="h-4 w-4 mr-2" />
                       VIEW FULL
@@ -271,9 +283,11 @@ export default function GuestProfilePage() {
                     </div>
                   </div>
                   <div className="bg-slate-50 md:w-16 flex items-center justify-center p-4 border-t md:border-t-0 md:border-l border-slate-100 group-hover:bg-primary/5 transition-colors">
-                    <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 text-slate-400 group-hover:text-primary">
-                      <ExternalLink className="h-4 w-4" />
-                    </Button>
+                    <Link href={`/bookings/${booking.id}`}>
+                      <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 text-slate-400 group-hover:text-primary">
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                    </Link>
                   </div>
                 </CardContent>
               </Card>
