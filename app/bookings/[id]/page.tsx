@@ -292,15 +292,6 @@ export default function BookingDetailPage() {
     if (!folio) return
 
     let processedValue = value
-    if (field === 'checkInDate') {
-      const parsedDate = format(folio.checkInDate, "HH:mm")
-      processedValue = parsedDate
-    }
-
-    if (field === 'checkOutDate') {
-      const parsedDate = format(folio.checkOutDate, "HH:mm")
-      processedValue = parsedDate
-    }
 
     if (
       (field === 'checkInDate' || field === 'checkOutDate') &&
@@ -916,9 +907,9 @@ export default function BookingDetailPage() {
                         <div className="space-y-2">
                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-In Date/Time</Label>
                            <Input 
-                              type="date" 
+                              type="datetime-local" 
                               className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
-                              value={format(toZonedTime(new Date(folio.checkInDate), property?.timezone || 'UTC'), "yyyy-MM-dd")}
+                              value={format(toZonedTime(new Date(folio.checkInDate), property?.timezone || 'UTC'), "yyyy-MM-dd'T'HH:mm")}
                               onChange={(e) => updateFolioField('checkInDate', e.target.value)}
                               disabled={folio.status !== 'CONFIRMED'}
                            />
@@ -926,9 +917,9 @@ export default function BookingDetailPage() {
                         <div className="space-y-2">
                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-Out Date/Time</Label>
                            <Input 
-                              type="date" 
+                              type="datetime-local" 
                               className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
-                              value={format(toZonedTime(new Date(folio.checkOutDate), property?.timezone || 'UTC'), "yyyy-MM-dd")}
+                              value={format(toZonedTime(new Date(folio.checkOutDate), property?.timezone || 'UTC'), "yyyy-MM-dd'T'HH:mm")}
                               onChange={(e) => updateFolioField('checkOutDate', e.target.value)}
                               disabled={folio.status === 'CHECKED_OUT'}
                            />
