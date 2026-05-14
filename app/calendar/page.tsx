@@ -51,6 +51,7 @@ export default function CalendarPage() {
             .from('Room')
             .select('*, RoomType!inner(*)')
             .eq('RoomType.propertyId', currentProperty.id)
+            .order('name', { referencedTable: 'RoomType' })
             .order('roomNumber'),
           supabase
             .from('BookingRoom')

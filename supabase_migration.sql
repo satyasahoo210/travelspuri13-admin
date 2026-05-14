@@ -649,3 +649,4 @@ CREATE INDEX "idx_rate_override_roomtype" ON "RateOverride"("roomTypeId");
 CREATE INDEX "idx_message_booking" ON "Message"("bookingId");
 CREATE INDEX "idx_message_guest" ON "Message"("guestId");
 
+ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "notes" TEXT;

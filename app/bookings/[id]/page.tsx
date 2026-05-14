@@ -473,6 +473,7 @@ export default function BookingDetailPage() {
     const formData = new FormData(e.currentTarget)
     const amount = Number(formData.get('amount'))
     const method = formData.get('method') as string
+    const notes = formData.get('notes') as string
 
     const { data, error } = await supabase
       .from('Payment')
@@ -482,6 +483,7 @@ export default function BookingDetailPage() {
         amount,
         method,
         status: totalDue <= amount ? 'PAID' : 'PARTIAL',
+        notes: notes || null,
       }])
       .select('*')
       .single()
@@ -579,7 +581,15 @@ export default function BookingDetailPage() {
               <LogIn className="mr-2 h-4 w-4" />
               Check In Guest
             </Button>
-          ) : folio.status === 'CHECKED_IN' ? (
+          ) : (folio.status === 'CHECKED_IN' && totalDue > 0) ? (
+            <Button 
+              className="rounded-2xl h-14 px-8 font-black uppercase text-xs tracking-widest bg-blue-500 hover:bg-blue-600 shadow-xl shadow-blue-500/20"
+              onClick={() => setIsPaymentDialogOpen(true)}
+            >
+              <CreditCard className="mr-2 h-4 w-4" />
+              Record Payment
+            </Button>
+          ) : (folio.status === 'CHECKED_IN' && totalDue <= 0) ? (
             <Button 
               className="rounded-2xl h-14 px-8 font-black uppercase text-xs tracking-widest bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-500/20"
               onClick={handleCheckOut}
@@ -892,6 +902,7 @@ export default function BookingDetailPage() {
                               <p className="text-[10px] font-bold text-slate-400">{format(new Date(p.createdAt ?? ''), 'dd MMM, hh:mm a')}</p>
                            </div>
                         </div>
+                        {p.notes && <p className="text-xs text-slate-500">Note: {p.notes}</p>}
                         <p className="font-black text-emerald-600 text-lg">₹{Number(p.amount).toLocaleString()}</p>
                       </div>
                     ))}
@@ -1089,6 +1100,10 @@ export default function BookingDetailPage() {
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Payment Amount</Label>
                 <Input name="amount" type="number" step="0.01" required defaultValue={totalDue} className="h-12 rounded-xl font-bold" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Notes</Label>
+                <Input name="notes" type="text" className="h-10 rounded-xl font-bold" placeholder="Add notes..." />
               </div>
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Payment Method</Label>

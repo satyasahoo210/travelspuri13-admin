@@ -78,7 +78,7 @@ type DropDownType = {
   products: Nullable<Pick<Tables<'Product'>, 'id' | 'name'>[]>
   rooms: Nullable<
     (Pick<Tables<'Room'>, 'id' | 'roomNumber'> & {
-      RoomType: Pick<Tables<'RoomType'>, 'propertyId' | 'defaultPrice'>
+      RoomType: Pick<Tables<'RoomType'>, 'name' | 'propertyId' | 'defaultPrice'>
     })[]
   >
   bookings: Nullable<
@@ -163,7 +163,7 @@ export default function ManagePage() {
     // Fetch rooms with propertyId from RoomType join
     const { data: rooms } = await supabase
       .from('Room')
-      .select('id, roomNumber, RoomType!inner(propertyId, defaultPrice)')
+      .select('id, roomNumber, RoomType!inner(name, propertyId, defaultPrice)')
 
     setDropdowns({ properties, roomTypes, guests, products, rooms, bookings })
   }
@@ -807,7 +807,7 @@ export default function ManagePage() {
     const configs: Record<string, string[]> = {
       Property: ['name', 'address', 'timezone'],
       RoomType: ['name', 'capacity', 'defaultPrice'],
-      Room: ['roomNumber', 'status'],
+      Room: ['RoomType.name', 'roomNumber', 'status'],
       Booking: ['Guest.name', 'checkInDate', 'checkOutDate', 'status'],
       Employee: ['name', 'email', 'role'],
       Guest: ['name', 'phone', 'email'],
@@ -937,7 +937,7 @@ export default function ManagePage() {
                         )
                       })}
                       <td className="px-8 py-5 text-right">
-                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex justify-end gap-2 transition-opacity">
                           <Button
                             variant="ghost"
                             size="icon"

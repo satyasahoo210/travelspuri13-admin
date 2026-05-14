@@ -702,6 +702,7 @@ export type Database = {
           createdAt: string | null
           id: string
           method: string
+          notes: string | null
           status: Database["public"]["Enums"]["PaymentStatus"] | null
           tenantId: string
           updatedAt: string | null
@@ -712,6 +713,7 @@ export type Database = {
           createdAt?: string | null
           id?: string
           method: string
+          notes?: string | null
           status?: Database["public"]["Enums"]["PaymentStatus"] | null
           tenantId: string
           updatedAt?: string | null
@@ -722,6 +724,7 @@ export type Database = {
           createdAt?: string | null
           id?: string
           method?: string
+          notes?: string | null
           status?: Database["public"]["Enums"]["PaymentStatus"] | null
           tenantId?: string
           updatedAt?: string | null
