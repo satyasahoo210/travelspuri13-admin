@@ -767,7 +767,6 @@ export default function BookingDetailPage() {
                               initialValue={Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0}
                               onSave={(val) => handleUpdateRoomPrice(a.id, val)}
                             />
-                            s
                             <div className="text-right min-w-[100px]">
                                <p className="font-black text-slate-900 text-lg">
                                  ₹{((Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0) * totalNights).toLocaleString()}
