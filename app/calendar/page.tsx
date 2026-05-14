@@ -50,9 +50,7 @@ export default function CalendarPage() {
           supabase
             .from('Room')
             .select('*, RoomType!inner(*)')
-            .eq('RoomType.propertyId', currentProperty.id)
-            .order('name', { referencedTable: 'RoomType' })
-            .order('roomNumber'),
+            .eq('RoomType.propertyId', currentProperty.id),
           supabase
             .from('BookingRoom')
             .select(
@@ -62,7 +60,12 @@ export default function CalendarPage() {
             .eq('Booking.propertyId', currentProperty.id),
         ])
 
-        if (roomsRes.data) setRooms(roomsRes.data)
+        if (roomsRes.data) {
+          roomsRes.data?.sort((a, b) =>
+            a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }),
+          )
+          setRooms(roomsRes.data)
+        }
         if (assignmentsRes.data) setAssignments(assignmentsRes.data)
       } catch (err) {
         console.error('Error fetching calendar data:', err)
