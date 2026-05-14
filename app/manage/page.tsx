@@ -49,7 +49,8 @@ import {
   XCircle,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 
 const PAGE_SIZE = 10
 
@@ -89,6 +90,7 @@ export default function ManagePage() {
   const { user } = useAuth()
   const router = useRouter()
   const supabase = createClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [activeEntity, setActiveEntity] = useState<EntityType>('Property')
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [loading, setLoading] = useState(false)
@@ -102,6 +104,7 @@ export default function ManagePage() {
   const [currentPage, setCurrentPage] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
 
   // State for filtering & guest logic
@@ -579,6 +582,227 @@ export default function ManagePage() {
     }
   }
 
+  const downloadTemplate = () => {
+    const headers = [
+      'Booking Date',
+      'Room',
+      'Guest Name',
+      'Contact Number',
+      'ID Type',
+      'ID Number',
+      'Chek-in Date',
+      'Check-Out Date',
+      'Override rate',
+    ]
+    const data = [headers]
+    const ws = XLSX.utils.aoa_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Template')
+    XLSX.writeFile(wb, 'bookings_template.xlsx')
+  }
+
+  const handleBulkUpload = async (file: File) => {
+    if (!selectedPropertyId) {
+      setError('Please select a property first')
+      return
+    }
+    console.log(file)
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const reader = new FileReader()
+      reader.onload = async (e) => {
+        const dataBuffer = e.target?.result
+        const workbook = XLSX.read(dataBuffer, { type: 'binary', cellDates: true })
+        const sheetName = workbook.SheetNames[0]
+        const sheet = workbook.Sheets[sheetName]
+        const rows: any[] = XLSX.utils.sheet_to_json(sheet)
+
+        let successCount = 0
+        let errorCount = 0
+
+        for (const row of rows) {
+          try {
+            // 1. Find/Create Guest
+            let guestId = ''
+            const phoneStr = String(row['Contact Number'] || '')
+            if (!phoneStr) throw new Error('Contact Number is missing')
+
+            const { data: existingGuest } = await supabase
+              .from('Guest')
+              .select('id')
+              .eq('phone', phoneStr)
+              .eq('tenantId', user!.tenantId)
+              .maybeSingle()
+
+            if (existingGuest) {
+              guestId = existingGuest.id
+            } else {
+              const { data: newGuest, error: guestError } = await supabase
+                .from('Guest')
+                .insert([{
+                  name: row['Guest Name'] || 'Unknown Guest',
+                  phone: phoneStr,
+                  idProofType: row['ID Type'] || null,
+                  idProofNumber: String(row['ID Number'] || ''),
+                  tenantId: user!.tenantId
+                }])
+                .select()
+                .single()
+              if (guestError) throw guestError
+              guestId = newGuest.id
+            }
+
+            // 2. Find Room
+            const { data: room } = await supabase
+              .from('Room')
+              .select('id, roomTypeId, RoomType!inner(propertyId, defaultPrice)')
+              .eq('RoomType.propertyId', selectedPropertyId)
+              .eq('roomNumber', String(row['Room']))
+              .maybeSingle()
+            
+            if (!room) throw new Error(`Room ${row['Room']} not found in selected property`)
+
+            // 3. Create Booking
+            const checkIn = new Date(row['Chek-in Date'])
+            const checkOut = new Date(row['Check-Out Date'])
+            if (isNaN(checkIn.getTime()) || isNaN(checkOut.getTime())) throw new Error('Invalid dates')
+            
+            const propertyInfo = dropdowns.properties?.find(p => p.id === selectedPropertyId)
+            const nights = Math.max(1, differenceInCalendarDays(checkOut, checkIn))
+            const rate = parseFloat(row['Override rate']) || room.RoomType?.defaultPrice || 0
+            const subtotal = rate * nights
+            const propSettings = propertyInfo?.settings as { taxAmount?: number, defaultTaxEnabled?: boolean }
+            const taxVal = propSettings.defaultTaxEnabled ? subtotal * ((propSettings?.taxAmount || 0) / 100) : 0
+            const totalAmount = subtotal + taxVal
+
+            const { data: booking, error: bookingError } = await supabase
+              .from('Booking')
+              .insert([{
+                guestId,
+                propertyId: selectedPropertyId,
+                tenantId: user!.tenantId,
+                checkInDate: checkIn.toISOString(),
+                checkOutDate: checkOut.toISOString(),
+                totalAmount,
+                status: 'CHECKED_OUT',
+                createdAt: row['Booking Date'] ? new Date(row['Booking Date']).toISOString() : new Date().toISOString()
+              }])
+              .select()
+              .single()
+            if (bookingError) throw bookingError
+
+            // 4. Create BookingRoom
+            const { error: brError } = await supabase
+              .from('BookingRoom')
+              .insert([{
+                bookingId: booking.id,
+                roomId: room.id,
+                roomTypeId: room.roomTypeId,
+                priceOverride: rate,
+                status: 'CHECKED_OUT'
+              }])
+            if (brError) throw brError
+
+            successCount++
+          } catch (err: any) {
+            console.error(`Row error: ${err.message}`, row)
+            errorCount++
+          }
+        }
+
+        setSuccess(`Bulk upload completed: ${successCount} successful, ${errorCount} failed.`)
+        setIsBulkUploadOpen(false)
+        fetchEntities()
+      }
+      reader.readAsArrayBuffer(file)
+    } catch (err: any) {
+      setError(err.message || 'Failed to process bulk upload')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const renderBulkUploadDialog = () => (
+    <Dialog open={isBulkUploadOpen} onOpenChange={setIsBulkUploadOpen}>
+      <DialogContent className="sm:max-w-xl p-0 rounded-[3rem] border-none shadow-2xl">
+        <div className="p-10 md:p-14">
+          <DialogHeader className="mb-10">
+            <DialogTitle className="text-4xl font-black text-slate-900 tracking-tighter">
+              Bulk Upload Bookings
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-8">
+            <div className="space-y-4">
+              <Label>Target Property</Label>
+              <Select
+                value={selectedPropertyId || ''}
+                onValueChange={setSelectedPropertyId}
+              >
+                <SelectTrigger className="h-16 rounded-2xl border-slate-100 bg-slate-50 font-bold">
+                  <SelectValue placeholder="Select a property" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl border-slate-100 shadow-xl">
+                  {dropdowns.properties?.map((p) => (
+                    <SelectItem key={p.id} value={p.id} className="font-bold py-3">
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="p-8 rounded-[2rem] border-2 border-dashed border-slate-100 bg-slate-50/50 flex flex-col items-center gap-4 text-center group hover:border-primary/50 transition-colors">
+              <div className="h-16 w-16 rounded-2xl bg-white shadow-sm flex items-center justify-center group-hover:scale-110 transition-transform">
+                <ClipboardList className="w-8 h-8 text-primary" />
+              </div>
+              <div>
+                <p className="font-black text-slate-900 tracking-tight">Upload Excel or CSV</p>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Maximum file size 5MB</p>
+              </div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept=".xlsx, .xls, .csv"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) handleBulkUpload(file)
+                }}
+              />
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-xl font-black text-[10px] tracking-widest uppercase px-6 border-slate-200 bg-white hover:bg-slate-50"
+              >
+                Select File
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <Button
+                variant="ghost"
+                onClick={downloadTemplate}
+                className="text-primary font-black text-xs tracking-widest uppercase hover:bg-primary/5 rounded-xl h-12"
+              >
+                Download Template File
+              </Button>
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-100">
+                <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest leading-relaxed">
+                  Important: Ensure headers match exactly as in the template. 
+                  Dates should be in YYYY-MM-DD format.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+
   const renderEntityList = () => {
     const configs: Record<string, string[]> = {
       Property: ['name', 'address', 'timezone'],
@@ -628,15 +852,26 @@ export default function ManagePage() {
               </motion.div>
             </Button>
           </div>
-          <Button
-            onClick={() => {
-              setEditingItem(null)
-              setIsDialogOpen(true)
-            }}
-            className="w-full md:w-auto rounded-2xl font-black text-xs tracking-widest uppercase h-14 px-8 shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all"
-          >
-            <Plus className="w-5 h-5 mr-2" /> ADD {activeEntity}
-          </Button>
+          <div className="flex gap-2 w-full md:w-auto">
+            {activeEntity === 'Booking' && (
+              <Button
+                variant="outline"
+                onClick={() => setIsBulkUploadOpen(true)}
+                className="w-full md:w-auto rounded-2xl font-black text-xs tracking-widest uppercase h-14 px-8 border-slate-100 bg-white hover:bg-slate-50 active:scale-95 transition-all"
+              >
+                <ClipboardList className="w-5 h-5 mr-2" /> BULK UPLOAD
+              </Button>
+            )}
+            <Button
+              onClick={() => {
+                setEditingItem(null)
+                setIsDialogOpen(true)
+              }}
+              className="w-full md:w-auto flex-1 md:flex-none rounded-2xl font-black text-xs tracking-widest uppercase h-14 px-8 shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all"
+            >
+              <Plus className="w-5 h-5 mr-2" /> ADD {activeEntity}
+            </Button>
+          </div>
         </div>
 
         <div className="bg-white rounded-[2.5rem] border border-slate-100 overflow-hidden shadow-sm">
@@ -1653,6 +1888,7 @@ export default function ManagePage() {
             </div>
           </DialogContent>
         </Dialog>
+        {renderBulkUploadDialog()}
       </main>
 
       <style jsx global>{`

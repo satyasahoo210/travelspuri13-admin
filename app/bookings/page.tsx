@@ -291,15 +291,22 @@ function BookingList({
                         </Badge>
                       </div>
 
-                      <div className="flex md:justify-end">
+                      <div className="flex flex-col md:justify-end">
                         <div className="text-right">
                           <p className="text-xs font-black text-slate-400 uppercase tracking-tighter mb-1">
-                            Total Due
+                            Total Amount
                           </p>
                           <p className="text-2xl font-heading font-black tracking-tighter text-slate-900">
-                            ₹{((booking.totalAmount || 0) - (booking.Payment?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0)).toLocaleString()}
+                            ₹{(booking.totalAmount || 0).toLocaleString()}
                           </p>
                         </div>
+                        {getTotalDue(booking) > 0 && (
+                          <div className="text-right">
+                            <p className="text-xs font-black text-red-400 uppercase tracking-tighter mb-1">
+                              Due: ₹{getTotalDue(booking).toLocaleString()}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -332,4 +339,8 @@ function BookingList({
       )}
     </div>
   )
+}
+
+function getTotalDue(booking: Booking) {
+  return (booking.totalAmount || 0) - (booking.Payment?.reduce((sum: number, p) => sum + (p.amount || 0), 0) || 0)
 }

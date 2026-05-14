@@ -1,6 +1,6 @@
 import { Providers } from "@/app/providers";
-import { BottomNav, Sidebar } from "@/components/layout/navigation";
 import { NavWrapper } from "@/components/layout/nav-wrapper";
+import { BottomNav, Sidebar } from "@/components/layout/navigation";
 import { PWAProvider } from "@/components/layout/pwa-provider";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { PropertyProvider } from "@/components/providers/property-provider";
@@ -43,7 +43,7 @@ export default function RootLayout({
               <PropertyProvider>
                 <SyncProvider>
                   <NavWrapper>
-                    <SyncIndicator />
+                    {/* <SyncIndicator /> */}
                     {children}
                   </NavWrapper>
                 </SyncProvider>

@@ -403,7 +403,7 @@ export function BookingForm({
         <div className="space-y-2">
           <Label>Check-in</Label>
           <Input
-            type="date"
+            type="datetime-local"
             required
             className="h-12 rounded-xl"
             value={formData.checkIn}
@@ -415,7 +415,7 @@ export function BookingForm({
         <div className="space-y-2">
           <Label>Check-out</Label>
           <Input
-            type="date"
+            type="datetime-local"
             required
             className="h-12 rounded-xl"
             value={formData.checkOut}
