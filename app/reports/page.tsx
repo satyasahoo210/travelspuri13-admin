@@ -3,23 +3,18 @@
 import { useProperty } from '@/components/providers/property-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/utils/supabase/client';
 import {
-  differenceInDays,
   eachDayOfInterval,
   endOfDay,
   endOfMonth,
   endOfWeek,
   endOfYear,
   formatDate,
-  getDaysInMonth,
-  isWithinInterval,
-  parseISO,
   startOfDay,
   startOfMonth,
   startOfWeek,
@@ -27,12 +22,9 @@ import {
   subDays,
   subMonths
 } from 'date-fns';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import {
   Activity,
-  AlertCircle,
-  Calendar as CalendarIcon,
-  Download,
   FileSpreadsheet,
   FileText,
   Inbox,
@@ -40,7 +32,7 @@ import {
   Play,
   Search
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import * as XLSX from 'xlsx';
 
 type ReportType = 'occupancy' | 'revenue' | 'booking' | 'payments-due';
@@ -55,8 +47,8 @@ export default function ReportsPage() {
   const [dateFilter, setDateFilter] = useState<DateFilter>('this-month');
   const [customStart, setCustomStart] = useState<string>('');
   const [customEnd, setCustomEnd] = useState<string>('');
-  const [occMonth, setOccMonth] = useState<string>(formatDate(new Date(), 'MM'));
-  const [occYear, setOccYear] = useState<string>(formatDate(new Date(), 'yyyy'));
+  const [occMonth, setOccMonth] = useState<string | null>(formatDate(new Date(), 'MM'));
+  const [occYear, setOccYear] = useState<string | null>(formatDate(new Date(), 'yyyy'));
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[] | null>(null);
@@ -133,7 +125,7 @@ export default function ReportsPage() {
           .order('roomNumber');
         setRooms(roomsList || []);
 
-        const start = startOfMonth(new Date(parseInt(occYear), parseInt(occMonth) - 1));
+        const start = startOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1));
         const end = endOfMonth(start);
 
         const { data: bookings } = await supabase
@@ -227,8 +219,8 @@ export default function ReportsPage() {
       });
     } else if (activeReport === 'occupancy') {
       const days = eachDayOfInterval({
-        start: startOfMonth(new Date(parseInt(occYear), parseInt(occMonth) - 1)),
-        end: endOfMonth(new Date(parseInt(occYear), parseInt(occMonth) - 1))
+        start: startOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1)),
+        end: endOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1))
       });
 
       exportData = rooms.map(room => {
@@ -283,9 +275,9 @@ export default function ReportsPage() {
       <div className="flex flex-wrap items-end gap-4 p-6 bg-white rounded-2xl border shadow-sm mb-8 transition-all hover:shadow-md">
         <div className="space-y-1.5 min-w-[200px]">
           <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Report Type</label>
-          <Select value={activeReport || ''} onValueChange={(val: ReportType) => {
+          <Select value={activeReport || ''} onValueChange={(val: ReportType | string | null) => {
             setData(null)
-            setActiveReport(val)
+            setActiveReport(val as ReportType)
           }}>
             <SelectTrigger className="h-11 rounded-xl font-bold border-slate-200">
               <SelectValue placeholder="Select report..." />
@@ -612,8 +604,8 @@ export default function ReportsPage() {
                     <TableRow>
                       <TableHead className="w-24 bg-slate-100 font-black text-slate-900 sticky left-0 z-20 border-r border-slate-200 uppercase tracking-tighter text-[10px]">Room No</TableHead>
                       {eachDayOfInterval({
-                        start: startOfMonth(new Date(parseInt(occYear), parseInt(occMonth) - 1)),
-                        end: endOfMonth(new Date(parseInt(occYear), parseInt(occMonth) - 1))
+                        start: startOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1)),
+                        end: endOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1))
                       }).map(day => (
                         <TableHead key={day.toISOString()} className="text-center font-bold p-2 min-w-[36px] text-[11px]">
                           <div className="text-[9px] text-slate-400 font-black uppercase tracking-tighter">{formatDate(day, 'EEE')}</div>
@@ -629,8 +621,8 @@ export default function ReportsPage() {
                           {room.roomNumber}
                         </TableCell>
                         {eachDayOfInterval({
-                          start: startOfMonth(new Date(parseInt(occYear), parseInt(occMonth) - 1)),
-                          end: endOfMonth(new Date(parseInt(occYear), parseInt(occMonth) - 1))
+                          start: startOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1)),
+                          end: endOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1))
                         }).map(day => {
                           const isOccupied = data.some(b => {
                             const checkIn = startOfDay(new Date(b.checkInDate));
@@ -664,8 +656,8 @@ export default function ReportsPage() {
                         Daily Booked
                       </TableCell>
                       {eachDayOfInterval({
-                        start: startOfMonth(new Date(parseInt(occYear), parseInt(occMonth) - 1)),
-                        end: endOfMonth(new Date(parseInt(occYear), parseInt(occMonth) - 1))
+                        start: startOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1)),
+                        end: endOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1))
                       }).map(day => {
                         const count = rooms.filter(room => data.some(b => {
                           const checkIn = startOfDay(new Date(b.checkInDate));
