@@ -29,7 +29,7 @@ import {
   Pie,
   Legend
 } from 'recharts';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isWithinInterval, subMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isWithinInterval, subMonths, differenceInDays } from 'date-fns';
 import { motion } from 'framer-motion';
 
 export default function ReportsPage() {
@@ -48,7 +48,7 @@ export default function ReportsPage() {
     setLoading(true);
 
     const [bookingsRes, roomsRes, paymentsRes] = await Promise.all([
-      supabase.from('Booking').select('*').eq('propertyId', currentProperty.id),
+      supabase.from('Booking').select('*, BookingRoom(*)').eq('propertyId', currentProperty.id),
       supabase.from('Room').select('*, RoomType!inner(*)').eq('RoomType.propertyId', currentProperty.id),
       supabase.from('Payment').select('*').eq('tenantId', currentProperty.tenantId)
     ]);
@@ -85,7 +85,11 @@ export default function ReportsPage() {
 
     // Revenue calculation
     const totalRevenue = filteredBookings.reduce((sum, b) => sum + Number(b.totalAmount || 0), 0);
-    const occupiedNights = filteredBookings.length; 
+    const occupiedNights = filteredBookings.reduce((sum, b) => {
+      const nights = differenceInDays(new Date(b.checkOutDate), new Date(b.checkInDate)) || 1;
+      const roomsCount = b.BookingRoom?.length || 1; // Default to 1 if not assigned
+      return sum + (nights * roomsCount);
+    }, 0); 
     const totalPossibleNights = totalRooms * daysInInterval.length;
 
     const occupancyRate = totalPossibleNights > 0 ? (occupiedNights / totalPossibleNights) * 100 : 0;

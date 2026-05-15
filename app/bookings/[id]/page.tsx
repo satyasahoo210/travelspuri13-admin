@@ -37,7 +37,7 @@ import { Tables } from '@/database.types'
 import { generateInvoicePDF } from '@/lib/finance/invoice-pdf'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/utils/supabase/client'
-import { differenceInCalendarDays, format } from 'date-fns'
+import { differenceInCalendarDays, format, isBefore } from 'date-fns'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -67,8 +67,8 @@ import { useCallback, useEffect, useState } from 'react'
 type Booking = Tables<'Booking'> & {
   Guest: Tables<'Guest'> | null
   Payment:
-    | Pick<Tables<'Payment'>, 'amount' | 'method' | 'status' | 'createdAt'>[]
-    | null
+  | Pick<Tables<'Payment'>, 'amount' | 'method' | 'status' | 'createdAt'>[]
+  | null
 }
 
 type BookingRoom = Tables<'BookingRoom'> & {
@@ -102,7 +102,7 @@ type PaymentStatus = Tables<'Payment'>['status']
 
 export default function BookingDetailPage() {
   const router = useRouter()
-  const { id } = useParams<{id: string}>()
+  const { id } = useParams<{ id: string }>()
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('details')
@@ -157,7 +157,7 @@ export default function BookingDetailPage() {
         setFolio(folioRes.data)
         setGstin(folioRes.data.Guest?.gstin || '')
         setGrNumber((folioRes.data.Guest as any)?.grNumber || '')
-        
+
         // Fetch property & related data once we have propertyId
         const [allServicesRes, allRoomsRes, propRes] = await Promise.all([
           supabase
@@ -184,7 +184,7 @@ export default function BookingDetailPage() {
           setShowTax(propertyData.settings?.defaultTaxEnabled !== false)
         }
       }
-      
+
       if (assignmentsRes.data) setAssignments(assignmentsRes.data)
       if (servicesRes.data) setServices(servicesRes.data)
       if (payRes.data) setPayments(payRes.data)
@@ -220,7 +220,7 @@ export default function BookingDetailPage() {
 
     let nights = differenceInCalendarDays(checkOutDate, checkInDate)
     const checkOutTimeStr = format(checkOutDate, 'HH:mm:ss')
-    const propCheckOutTime = p.settings?.checkoutTime 
+    const propCheckOutTime = p.settings?.checkoutTime
       ? `${p.settings.checkoutTime}:00`
       : (p.checkOutTime || '07:00:00')
 
@@ -321,7 +321,7 @@ export default function BookingDetailPage() {
     const newWaiver = !folio.waiveLastDayCharge
     const updatedFolio = { ...folio, waiveLastDayCharge: newWaiver }
     const { total: newTotal } = calculateCurrentTotal(updatedFolio)
-    
+
     setFolio(updatedFolio)
     await supabase
       .from('Booking')
@@ -371,7 +371,7 @@ export default function BookingDetailPage() {
   const handleCancelBooking = async () => {
     if (!folio) return
     if (!confirm('Are you sure you want to cancel this booking?')) return
-    
+
     setLoading(true)
     await supabase
       .from('Booking')
@@ -474,6 +474,7 @@ export default function BookingDetailPage() {
     const amount = Number(formData.get('amount'))
     const method = formData.get('method') as string
     const notes = formData.get('notes') as string
+    const paymentDate = formData.get('paymentDate') as string
 
     const { data, error } = await supabase
       .from('Payment')
@@ -482,6 +483,7 @@ export default function BookingDetailPage() {
         tenantId: folio.tenantId,
         amount,
         method,
+        createdAt: paymentDate,
         status: totalDue <= amount ? 'PAID' : 'PARTIAL',
         notes: notes || null,
       }])
@@ -534,9 +536,9 @@ export default function BookingDetailPage() {
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <header className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => router.back()}
             className="rounded-full hover:bg-slate-100 h-12 w-12"
           >
@@ -551,8 +553,8 @@ export default function BookingDetailPage() {
               <Badge className={cn(
                 'font-black text-[10px] uppercase tracking-widest border-none px-4 py-1.5 rounded-full',
                 folio.status === 'CONFIRMED' ? 'bg-emerald-50 text-emerald-600' :
-                folio.status === 'CHECKED_IN' ? 'bg-blue-50 text-blue-600' :
-                'bg-slate-100 text-slate-600'
+                  folio.status === 'CHECKED_IN' ? 'bg-blue-50 text-blue-600' :
+                    'bg-slate-100 text-slate-600'
               )}>
                 {folio.status}
               </Badge>
@@ -562,19 +564,19 @@ export default function BookingDetailPage() {
             </p>
           </div>
         </div>
-        
+
         <div className="flex gap-3">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="rounded-2xl h-14 px-6 font-black uppercase text-xs tracking-widest border-2 border-slate-100 hover:bg-slate-50"
             onClick={() => setIsInvoicePreviewOpen(true)}
           >
             <Receipt className="mr-2 h-4 w-4" />
             Preview Invoice
           </Button>
-          
+
           {folio.status === 'CONFIRMED' ? (
-            <Button 
+            <Button
               className="rounded-2xl h-14 px-8 font-black uppercase text-xs tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-xl shadow-emerald-500/20"
               onClick={handleCheckIn}
             >
@@ -582,7 +584,7 @@ export default function BookingDetailPage() {
               Check In Guest
             </Button>
           ) : (folio.status === 'CHECKED_IN' && totalDue > 0) ? (
-            <Button 
+            <Button
               className="rounded-2xl h-14 px-8 font-black uppercase text-xs tracking-widest bg-blue-500 hover:bg-blue-600 shadow-xl shadow-blue-500/20"
               onClick={() => setIsPaymentDialogOpen(true)}
             >
@@ -590,7 +592,7 @@ export default function BookingDetailPage() {
               Record Payment
             </Button>
           ) : (folio.status === 'CHECKED_IN' && totalDue <= 0) ? (
-            <Button 
+            <Button
               className="rounded-2xl h-14 px-8 font-black uppercase text-xs tracking-widest bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-500/20"
               onClick={handleCheckOut}
             >
@@ -598,7 +600,7 @@ export default function BookingDetailPage() {
               Check Out
             </Button>
           ) : (
-             <Button 
+            <Button
               className="rounded-2xl h-14 px-8 font-black uppercase text-xs tracking-widest bg-slate-900 hover:bg-slate-800"
               onClick={() => setIsInvoicePreviewOpen(true)}
             >
@@ -612,7 +614,7 @@ export default function BookingDetailPage() {
               <MoreHorizontal className="h-5 w-5" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 rounded-2xl p-2 border-slate-100 shadow-2xl">
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 className="rounded-xl h-12 font-black uppercase text-[10px] tracking-widest gap-3"
                 onClick={() => setIsPaymentDialogOpen(true)}
               >
@@ -627,7 +629,7 @@ export default function BookingDetailPage() {
                 Clone Booking
               </DropdownMenuItem> */}
               <div className="h-px bg-slate-50 my-2" />
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 className="rounded-xl h-12 font-black uppercase text-[10px] tracking-widest gap-3 text-rose-500 focus:text-rose-600 focus:bg-rose-50"
                 onClick={handleCancelBooking}
               >
@@ -653,7 +655,7 @@ export default function BookingDetailPage() {
             <CardContent className="pt-16 pb-8 px-8 space-y-6">
               <div className="flex justify-between items-start">
                 <div>
-                  <h2 
+                  <h2
                     className="text-2xl font-heading font-black tracking-tighter text-slate-900 cursor-pointer hover:text-primary transition-colors"
                     onClick={() => router.push(`/guests/${folio.guestId}`)}
                   >
@@ -689,45 +691,45 @@ export default function BookingDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-8 space-y-6">
-               <div className="grid grid-cols-2 gap-8 relative">
-                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center z-10 border border-slate-100">
-                    <ArrowLeft className="h-4 w-4 text-slate-300 rotate-180" />
-                 </div>
-                 <div className="space-y-1">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Check In</p>
-                    <p className="text-sm font-black text-slate-900">{format(new Date(folio.checkInDate), 'dd MMM yyyy')}</p>
-                    <p className="text-[10px] font-bold text-slate-400">{format(new Date(folio.checkInDate), 'hh:mm a')}</p>
-                 </div>
-                 <div className="space-y-1 text-right">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Check Out</p>
-                    <p className="text-sm font-black text-slate-900">{format(new Date(folio.checkOutDate), 'dd MMM yyyy')}</p>
-                    <p className="text-[10px] font-bold text-slate-400">{format(new Date(folio.checkOutDate), 'hh:mm a')}</p>
-                 </div>
-               </div>
-               
-               <div className="p-4 bg-primary/5 rounded-2xl flex items-center justify-between border border-primary/10">
-                  <span className="text-xs font-black text-primary uppercase tracking-widest">Duration</span>
-                  <span className="text-lg font-black text-primary">{totalNights} Nights</span>
-               </div>
+              <div className="grid grid-cols-2 gap-8 relative">
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center z-10 border border-slate-100">
+                  <ArrowLeft className="h-4 w-4 text-slate-300 rotate-180" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Check In</p>
+                  <p className="text-sm font-black text-slate-900">{format(new Date(folio.checkInDate), 'dd MMM yyyy')}</p>
+                  <p className="text-[10px] font-bold text-slate-400">{format(new Date(folio.checkInDate), 'hh:mm a')}</p>
+                </div>
+                <div className="space-y-1 text-right">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Check Out</p>
+                  <p className="text-sm font-black text-slate-900">{format(new Date(folio.checkOutDate), 'dd MMM yyyy')}</p>
+                  <p className="text-[10px] font-bold text-slate-400">{format(new Date(folio.checkOutDate), 'hh:mm a')}</p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-primary/5 rounded-2xl flex items-center justify-between border border-primary/10">
+                <span className="text-xs font-black text-primary uppercase tracking-widest">Duration</span>
+                <span className="text-lg font-black text-primary">{totalNights} Nights</span>
+              </div>
             </CardContent>
           </Card>
-          
+
           <Card className="rounded-[2.5rem] border-slate-100 bg-white shadow-sm overflow-hidden">
-             <CardHeader className="pb-4 border-b border-slate-50">
+            <CardHeader className="pb-4 border-b border-slate-50">
               <CardTitle className="text-lg font-black tracking-tighter flex items-center gap-2">
                 <Info className="h-5 w-5 text-slate-400" />
                 Folio Notes
               </CardTitle>
             </CardHeader>
             <CardContent className="p-8">
-               <textarea
-                  className="w-full bg-amber-50/50 border border-amber-100 p-4 rounded-2xl text-xs font-bold text-amber-900/60 leading-relaxed italic outline-none focus:border-amber-200 transition-colors"
-                  rows={4}
-                  value={folio.notes || ''}
-                  onChange={(e) => setFolio({ ...folio, notes: e.target.value })}
-                  onBlur={(e) => updateFolioField('notes', e.target.value)}
-                  placeholder="Special requests, flight details, etc."
-                />
+              <textarea
+                className="w-full bg-amber-50/50 border border-amber-100 p-4 rounded-2xl text-xs font-bold text-amber-900/60 leading-relaxed italic outline-none focus:border-amber-200 transition-colors"
+                rows={4}
+                value={folio.notes || ''}
+                onChange={(e) => setFolio({ ...folio, notes: e.target.value })}
+                onBlur={(e) => updateFolioField('notes', e.target.value)}
+                placeholder="Special requests, flight details, etc."
+              />
             </CardContent>
           </Card>
         </div>
@@ -746,96 +748,96 @@ export default function BookingDetailPage() {
 
             <TabsContent value="ledger" className="mt-8 space-y-8 animate-in slide-in-from-bottom-2">
               <div className="space-y-4">
-                 <div className="flex items-center justify-between px-2">
-                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                      <Receipt className="w-3 h-3" /> Billing Items
-                    </h4>
-                    <SelectService
-                      onAdd={handleAddService}
-                      services={availableServices}
-                      existingIds={[]}
-                    />
-                  </div>
-                  
-                  <div className="space-y-3">
-                    {assignments.map((a) => (
-                      <Card key={a.id} className="border-slate-100 shadow-sm rounded-[2rem] overflow-hidden">
-                        <CardContent className="p-6 flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-primary/5 flex items-center justify-center text-primary border border-primary/10">
-                              <BedDouble className="w-6 h-6" />
-                            </div>
-                            <div>
-                              <p className="font-black text-slate-900">Room {a.Room?.roomNumber} Stay</p>
-                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                {totalNights} nights x ₹{(Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0).toLocaleString()}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-6">
-                            <PriceOverrideInput 
-                              initialValue={Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0}
-                              onSave={(val) => handleUpdateRoomPrice(a.id, val)}
-                            />
-                            <div className="text-right min-w-[100px]">
-                               <p className="font-black text-slate-900 text-lg">
-                                 ₹{((Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0) * totalNights).toLocaleString()}
-                               </p>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                <div className="flex items-center justify-between px-2">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                    <Receipt className="w-3 h-3" /> Billing Items
+                  </h4>
+                  <SelectService
+                    onAdd={handleAddService}
+                    services={availableServices}
+                    existingIds={[]}
+                  />
+                </div>
 
-                    {services.map((s) => (
-                      <Card key={s.id} className="border-slate-100 shadow-sm rounded-[2rem] overflow-hidden group">
-                        <CardContent className="p-6 flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100">
-                              <Plus className="w-6 h-6" />
-                            </div>
-                            <div>
-                              <p className="font-black text-slate-900">{s.Service?.name}</p>
-                              <div className="flex items-center gap-2 mt-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 bg-slate-100 rounded-lg"
-                                  onClick={() => updateServiceQuantity(s.id, (s.quantity ?? 0) - 1)}
-                                >
-                                  -
-                                </Button>
-                                <span className="text-xs font-black w-6 text-center">{s.quantity}</span>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 bg-slate-100 rounded-lg"
-                                  onClick={() => updateServiceQuantity(s.id, (s.quantity ?? 0) + 1)}
-                                >
-                                  +
-                                </Button>
-                              </div>
+                <div className="space-y-3">
+                  {assignments.map((a) => (
+                    <Card key={a.id} className="border-slate-100 shadow-sm rounded-[2rem] overflow-hidden">
+                      <CardContent className="p-6 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-2xl bg-primary/5 flex items-center justify-center text-primary border border-primary/10">
+                            <BedDouble className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="font-black text-slate-900">Room {a.Room?.roomNumber} Stay</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                              {totalNights} nights x ₹{(Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-6">
+                          <PriceOverrideInput
+                            initialValue={Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0}
+                            onSave={(val) => handleUpdateRoomPrice(a.id, val)}
+                          />
+                          <div className="text-right min-w-[100px]">
+                            <p className="font-black text-slate-900 text-lg">
+                              ₹{((Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0) * totalNights).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+
+                  {services.map((s) => (
+                    <Card key={s.id} className="border-slate-100 shadow-sm rounded-[2rem] overflow-hidden group">
+                      <CardContent className="p-6 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100">
+                            <Plus className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="font-black text-slate-900">{s.Service?.name}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 bg-slate-100 rounded-lg"
+                                onClick={() => updateServiceQuantity(s.id, (s.quantity ?? 0) - 1)}
+                              >
+                                -
+                              </Button>
+                              <span className="text-xs font-black w-6 text-center">{s.quantity}</span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 bg-slate-100 rounded-lg"
+                                onClick={() => updateServiceQuantity(s.id, (s.quantity ?? 0) + 1)}
+                              >
+                                +
+                              </Button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-6">
-                            <div className="text-right">
-                              <p className="font-black text-slate-900 text-lg">
-                                ₹{Number(s.totalPrice).toLocaleString()}
-                              </p>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="opacity-0 group-hover:opacity-100 h-10 w-10 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
-                              onClick={() => handleRemoveService(s.id)}
-                            >
-                              <Trash2 className="h-5 w-5" />
-                            </Button>
+                        </div>
+                        <div className="flex items-center gap-6">
+                          <div className="text-right">
+                            <p className="font-black text-slate-900 text-lg">
+                              ₹{Number(s.totalPrice).toLocaleString()}
+                            </p>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="opacity-0 group-hover:opacity-100 h-10 w-10 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                            onClick={() => handleRemoveService(s.id)}
+                          >
+                            <Trash2 className="h-5 w-5" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               </div>
 
               <Card className="border-none bg-slate-900 rounded-[3rem] overflow-hidden shadow-2xl shadow-slate-900/30">
@@ -847,7 +849,7 @@ export default function BookingDetailPage() {
 
                   <div className="pt-6 border-t border-white/10 flex items-center justify-between">
                     <div className="flex gap-6">
-                       <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3">
                         <input
                           type="checkbox"
                           id="waive-day"
@@ -869,20 +871,20 @@ export default function BookingDetailPage() {
                       </div>
                     </div>
                     <div className="text-right">
-                       <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Grand Total</p>
-                       <h3 className="text-5xl font-heading font-black tracking-tighter text-white">₹{total.toLocaleString()}</h3>
+                      <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Grand Total</p>
+                      <h3 className="text-5xl font-heading font-black tracking-tighter text-white">₹{total.toLocaleString()}</h3>
                     </div>
                   </div>
 
                   <div className="pt-8 flex gap-4">
-                     <div className="flex-1 bg-white/5 p-4 rounded-2xl border border-white/5">
-                        <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Total Paid</p>
-                        <p className="text-xl font-black text-emerald-400">₹{totalPaid.toLocaleString()}</p>
-                     </div>
-                     <div className="flex-1 bg-white/5 p-4 rounded-2xl border border-white/5">
-                        <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Balance Due</p>
-                        <p className="text-xl font-black text-rose-400">₹{totalDue.toLocaleString()}</p>
-                     </div>
+                    <div className="flex-1 bg-white/5 p-4 rounded-2xl border border-white/5">
+                      <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Total Paid</p>
+                      <p className="text-xl font-black text-emerald-400">₹{totalPaid.toLocaleString()}</p>
+                    </div>
+                    <div className="flex-1 bg-white/5 p-4 rounded-2xl border border-white/5">
+                      <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Balance Due</p>
+                      <p className="text-xl font-black text-rose-400">₹{totalDue.toLocaleString()}</p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -894,13 +896,13 @@ export default function BookingDetailPage() {
                     {payments.map((p) => (
                       <div key={p.id} className="flex justify-between items-center p-5 bg-white rounded-3xl border border-slate-100 shadow-sm">
                         <div className="flex items-center gap-4">
-                           <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center">
-                              <CreditCard className="h-5 w-5 text-slate-400" />
-                           </div>
-                           <div>
-                              <p className="text-sm font-black text-slate-900">{p.method}</p>
-                              <p className="text-[10px] font-bold text-slate-400">{format(new Date(p.createdAt ?? ''), 'dd MMM, hh:mm a')}</p>
-                           </div>
+                          <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center">
+                            <CreditCard className="h-5 w-5 text-slate-400" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-black text-slate-900">{p.method}</p>
+                            <p className="text-[10px] font-bold text-slate-400">{format(new Date(p.createdAt ?? ''), 'dd MMM, hh:mm a')}</p>
+                          </div>
                         </div>
                         {p.notes && <p className="text-xs text-slate-500">Note: {p.notes}</p>}
                         <p className="font-black text-emerald-600 text-lg">₹{Number(p.amount).toLocaleString()}</p>
@@ -912,106 +914,106 @@ export default function BookingDetailPage() {
             </TabsContent>
 
             <TabsContent value="settings" className="mt-8 space-y-8 animate-in slide-in-from-bottom-2">
-               <Card className="rounded-[2.5rem] border-slate-100 shadow-sm bg-white overflow-hidden">
-                  <CardContent className="p-10 space-y-8">
-                     <div className="grid grid-cols-2 gap-8">
-                        <div className="space-y-2">
-                           <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-In Date/Time</Label>
-                           <Input 
-                              type="datetime-local" 
-                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
-                              value={format(toZonedTime(new Date(folio.checkInDate), property?.timezone || 'UTC'), "yyyy-MM-dd'T'HH:mm")}
-                              onChange={(e) => updateFolioField('checkInDate', e.target.value)}
-                              disabled={folio.status !== 'CONFIRMED'}
-                           />
-                        </div>
-                        <div className="space-y-2">
-                           <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-Out Date/Time</Label>
-                           <Input 
-                              type="datetime-local" 
-                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
-                              value={format(toZonedTime(new Date(folio.checkOutDate), property?.timezone || 'UTC'), "yyyy-MM-dd'T'HH:mm")}
-                              onChange={(e) => updateFolioField('checkOutDate', e.target.value)}
-                              disabled={folio.status === 'CHECKED_OUT'}
-                           />
-                        </div>
-                     </div>
+              <Card className="rounded-[2.5rem] border-slate-100 shadow-sm bg-white overflow-hidden">
+                <CardContent className="p-10 space-y-8">
+                  <div className="grid grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-In Date/Time</Label>
+                      <Input
+                        type="datetime-local"
+                        className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                        value={format(toZonedTime(new Date(folio.checkInDate), property?.timezone || 'UTC'), "yyyy-MM-dd'T'HH:mm")}
+                        onChange={(e) => updateFolioField('checkInDate', e.target.value)}
+                      // disabled={folio.status !== 'CONFIRMED'}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-Out Date/Time</Label>
+                      <Input
+                        type="datetime-local"
+                        className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                        value={format(toZonedTime(new Date(folio.checkOutDate), property?.timezone || 'UTC'), "yyyy-MM-dd'T'HH:mm")}
+                        onChange={(e) => updateFolioField('checkOutDate', e.target.value)}
+                      // disabled={folio.status === 'CHECKED_OUT'}
+                      />
+                    </div>
+                  </div>
 
-                     <div className="grid grid-cols-2 gap-8">
-                        <div className="space-y-2">
-                           <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Adults</Label>
-                           <Input 
-                              type="number" 
-                              min="1"
-                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
-                              value={folio.adults || 1}
-                              onChange={(e) => updateFolioField('adults', parseInt(e.target.value) || 1)}
-                           />
-                        </div>
-                        <div className="space-y-2">
-                           <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Children</Label>
-                           <Input 
-                              type="number" 
-                              min="0"
-                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
-                              value={folio.children || 0}
-                              onChange={(e) => updateFolioField('children', parseInt(e.target.value) || 0)}
-                           />
-                        </div>
-                     </div>
+                  <div className="grid grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Adults</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                        value={folio.adults || 1}
+                        onChange={(e) => updateFolioField('adults', parseInt(e.target.value) || 1)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Children</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                        value={folio.children || 0}
+                        onChange={(e) => updateFolioField('children', parseInt(e.target.value) || 0)}
+                      />
+                    </div>
+                  </div>
 
-                     <div className="grid grid-cols-2 gap-8">
-                        <div className="space-y-2">
-                           <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Guest GSTIN</Label>
-                           <Input 
-                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100 uppercase"
-                              value={gstin}
-                              onChange={(e) => setGstin(e.target.value.toUpperCase())}
-                              onBlur={(e) => handleUpdateGstin(e.target.value)}
-                              placeholder="Optional GSTIN"
-                           />
-                        </div>
-                        <div className="space-y-2">
-                           <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">GR Number</Label>
-                           <Input 
-                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100 uppercase"
-                              value={grNumber}
-                              onChange={(e) => setGrNumber(e.target.value.toUpperCase())}
-                              onBlur={(e) => handleUpdateGrNumber(e.target.value)}
-                              placeholder="Internal GR #"
-                           />
-                        </div>
-                     </div>
-                     
-                     <div className="pt-8 border-t border-slate-50 flex justify-between items-center">
-                        <div>
-                           <p className="text-sm font-black text-slate-900">Room Assignments</p>
-                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Manage linked rooms</p>
-                        </div>
-                        <SelectRoom
-                          onAdd={handleAddRoom}
-                          rooms={availableRooms}
-                          existingIds={assignments.map((a) => a.roomId!)}
-                        />
-                     </div>
+                  <div className="grid grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Guest GSTIN</Label>
+                      <Input
+                        className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100 uppercase"
+                        value={gstin}
+                        onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                        onBlur={(e) => handleUpdateGstin(e.target.value)}
+                        placeholder="Optional GSTIN"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">GR Number</Label>
+                      <Input
+                        className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100 uppercase"
+                        value={grNumber}
+                        onChange={(e) => setGrNumber(e.target.value.toUpperCase())}
+                        onBlur={(e) => handleUpdateGrNumber(e.target.value)}
+                        placeholder="Internal GR #"
+                      />
+                    </div>
+                  </div>
 
-                     <div className="space-y-3">
-                        {assignments.map((a) => (
-                          <div key={a.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                             <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-black text-primary">
-                                   {a.Room?.roomNumber}
-                                </div>
-                                <span className="font-black text-slate-700">{a.RoomType?.name}</span>
-                             </div>
-                             <Button variant="ghost" size="icon" className="text-rose-500 hover:bg-rose-50" onClick={() => handleRemoveRoom(a.id)}>
-                                <Trash2 className="h-4 w-4" />
-                             </Button>
+                  <div className="pt-8 border-t border-slate-50 flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-black text-slate-900">Room Assignments</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Manage linked rooms</p>
+                    </div>
+                    <SelectRoom
+                      onAdd={handleAddRoom}
+                      rooms={availableRooms}
+                      existingIds={assignments.map((a) => a.roomId!)}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    {assignments.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-black text-primary">
+                            {a.Room?.roomNumber}
                           </div>
-                        ))}
-                     </div>
-                  </CardContent>
-               </Card>
+                          <span className="font-black text-slate-700">{a.RoomType?.name}</span>
+                        </div>
+                        <Button variant="ghost" size="icon" className="text-rose-500 hover:bg-rose-50" onClick={() => handleRemoveRoom(a.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
         </div>
@@ -1037,42 +1039,46 @@ export default function BookingDetailPage() {
             </div>
 
             <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 space-y-6">
-               <div className="grid grid-cols-2 gap-8 pb-6 border-b border-slate-200">
-                  <div>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Guest Details</p>
-                    <p className="font-black text-slate-900 text-lg">{folio.Guest?.name}</p>
-                    {gstin && <p className="text-[10px] font-bold text-primary mt-1">GSTIN: {gstin}</p>}
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Stay Period</p>
-                    <p className="font-bold text-slate-600 text-sm">
-                      {format(new Date(folio.checkInDate), 'dd MMM')} - {format(new Date(folio.checkOutDate), 'dd MMM yyyy')}
-                    </p>
-                  </div>
-               </div>
+              <div className="grid grid-cols-2 gap-8 pb-6 border-b border-slate-200">
+                <div>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Guest Details</p>
+                  <p className="font-black text-slate-900 text-lg">{folio.Guest?.name}</p>
+                  {gstin && <p className="text-[10px] font-bold text-primary mt-1">GSTIN: {gstin}</p>}
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Stay Period</p>
+                  <p className="font-bold text-slate-600 text-sm">
+                    {format(new Date(folio.checkInDate), 'dd MMM')} - {format(new Date(folio.checkOutDate), 'dd MMM yyyy')}
+                  </p>
+                </div>
+              </div>
 
-               <div className="space-y-3">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-slate-500 uppercase tracking-wider">Accommodation ({totalNights} nights)</span>
-                    <span className="text-slate-900 font-black">₹{totalRoomCharges.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-slate-500 uppercase tracking-wider">Services & Add-ons</span>
-                    <span className="text-slate-900 font-black">₹{serviceSubtotal.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-xs font-bold text-emerald-600">
-                    <span className="uppercase tracking-wider">Discounts</span>
-                    <span className="font-black">- ₹{discount.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-slate-500 uppercase tracking-wider">Taxes ({showTax ? (property?.settings?.taxAmount ?? property?.taxPercentage) : 0}%)</span>
-                    <span className="text-slate-900 font-black">₹{taxAmount.toLocaleString()}</span>
-                  </div>
-                  <div className="pt-6 mt-2 border-t border-slate-200 flex justify-between items-center">
-                    <span className="text-sm font-black uppercase tracking-widest text-slate-400">Total Due</span>
-                    <span className="text-3xl font-heading font-black text-primary">₹{total.toLocaleString()}</span>
-                  </div>
-               </div>
+              <div className="space-y-3">
+                <div className="flex justify-between text-xs font-bold">
+                  <span className="text-slate-500 uppercase tracking-wider">Accommodation ({totalNights} nights)</span>
+                  <span className="text-slate-900 font-black">₹{totalRoomCharges.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-xs font-bold">
+                  <span className="text-slate-500 uppercase tracking-wider">Services & Add-ons</span>
+                  <span className="text-slate-900 font-black">₹{serviceSubtotal.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-xs font-bold text-emerald-600">
+                  <span className="uppercase tracking-wider">Discounts</span>
+                  <span className="font-black">- ₹{discount.toLocaleString()}</span>
+                </div>
+                {showTax && <div className="flex justify-between text-xs font-bold">
+                  <span className="text-slate-500 uppercase tracking-wider">Taxes ({property?.settings?.taxAmount ?? property?.taxPercentage}%)</span>
+                  <span className="text-slate-900 font-black">₹{taxAmount.toLocaleString()}</span>
+                </div>}
+                {totalPaid > 0 && <div className="flex justify-between text-xs font-bold">
+                  <span className="text-slate-500 uppercase tracking-wider">Paid</span>
+                  <span className="text-slate-900 font-black">₹{totalPaid.toLocaleString()}</span>
+                </div>}
+                <div className="pt-6 mt-2 border-t border-slate-200 flex justify-between items-center">
+                  <span className="text-sm font-black uppercase tracking-widest text-slate-400">Total Due</span>
+                  <span className="text-3xl font-heading font-black text-primary">₹{(total - totalPaid).toLocaleString()}</span>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-2xl border border-amber-100">
@@ -1084,7 +1090,7 @@ export default function BookingDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-      
+
       {/* Payment Dialog */}
       <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
         <DialogContent className="sm:max-w-[425px] rounded-[2.5rem]">
@@ -1119,6 +1125,15 @@ export default function BookingDetailPage() {
                     <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Payment Date</Label>
+                <Input
+                  name="paymentDate"
+                  type="datetime-local"
+                  className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                  defaultValue={format(toZonedTime(isBefore(folio.checkOutDate, new Date()) ? new Date(folio.checkInDate) : new Date(), property?.timezone || 'UTC'), "yyyy-MM-dd'T'HH:mm")}
+                />
               </div>
             </div>
             <Button type="submit" disabled={loading} className="w-full h-14 rounded-2xl font-black uppercase tracking-widest bg-slate-900 shadow-xl shadow-slate-900/20">
@@ -1228,26 +1243,26 @@ function SelectRoom({ onAdd, rooms, existingIds }: { onAdd: (id: string) => void
 function BookingDetailSkeleton() {
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-pulse">
-       <div className="flex justify-between items-center">
-          <div className="flex items-center gap-4">
-             <Skeleton className="h-12 w-12 rounded-full" />
-             <div className="space-y-2">
-                <Skeleton className="h-10 w-64 rounded-xl" />
-                <Skeleton className="h-4 w-40 rounded-lg" />
-             </div>
+      <div className="flex justify-between items-center">
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-12 w-12 rounded-full" />
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-64 rounded-xl" />
+            <Skeleton className="h-4 w-40 rounded-lg" />
           </div>
-          <div className="flex gap-3">
-             <Skeleton className="h-14 w-40 rounded-2xl" />
-             <Skeleton className="h-14 w-40 rounded-2xl" />
-          </div>
-       </div>
-       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <Skeleton className="h-[400px] rounded-[2.5rem]" />
-          <div className="lg:col-span-2 space-y-6">
-             <Skeleton className="h-16 w-full rounded-[2rem]" />
-             <Skeleton className="h-[500px] w-full rounded-[2.5rem]" />
-          </div>
-       </div>
+        </div>
+        <div className="flex gap-3">
+          <Skeleton className="h-14 w-40 rounded-2xl" />
+          <Skeleton className="h-14 w-40 rounded-2xl" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <Skeleton className="h-[400px] rounded-[2.5rem]" />
+        <div className="lg:col-span-2 space-y-6">
+          <Skeleton className="h-16 w-full rounded-[2rem]" />
+          <Skeleton className="h-[500px] w-full rounded-[2.5rem]" />
+        </div>
+      </div>
     </div>
   )
 }

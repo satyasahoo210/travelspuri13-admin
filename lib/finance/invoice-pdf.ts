@@ -223,7 +223,7 @@ export const generateInvoicePDF = async (
     currentY += 10
     doc.setFontSize(14)
     doc.setFont('helvetica', 'black')
-    doc.text('TAX INVOICE', margin, currentY)
+    doc.text('INVOICE', margin, currentY)
     doc.setFontSize(10)
     doc.text(
       `DATE: ${format(new Date(), 'dd/MM/yyyy')}`,
