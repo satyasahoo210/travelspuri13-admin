@@ -106,7 +106,7 @@ const getImageData = async (url: string): Promise<{ base64: string, width: numbe
       }
       ctx.drawImage(img, 0, 0)
       resolve({
-        base64: canvas.toDataURL('image/png'),
+        base64: canvas.toDataURL('image/jpeg', 0.8),
         width: img.width,
         height: img.height
       })
@@ -136,7 +136,10 @@ export const generateInvoicePDF = async (
     },
     mode: 'download' | 'print' = 'download',
   ) => {
-    const doc = new jsPDF()
+    const doc = new jsPDF({
+      format: 'a4',
+      compress: true
+    })
     const margin = 15
     const pageWidth = doc.internal.pageSize.width
     const pageHeight = doc.internal.pageSize.height
@@ -146,7 +149,7 @@ export const generateInvoicePDF = async (
     try {
       // Left: Our Logo (public/logo.svg)
       const ourLogoData = await getImageData('/logo_large.svg')
-      doc.addImage(ourLogoData.base64, 'PNG', margin, currentY, 80, 30)
+      doc.addImage(ourLogoData.base64, 'JPEG', margin, currentY, 80, 30, undefined, 'FAST')
   
       // Right: Property Logo (if available)
       if (property.logoUrl) {
@@ -166,11 +169,13 @@ export const generateInvoicePDF = async (
 
           doc.addImage(
             propLogoData.base64,
-            'PNG',
+            'JPEG',
             pageWidth - margin - finalLogoWidth,
             currentY + (maxLogoHeight - finalLogoHeight) / 2,
             finalLogoWidth,
             finalLogoHeight,
+            undefined, 
+            'FAST'
           )
         } catch (e) {
           console.error('Property logo load error', e)

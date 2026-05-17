@@ -220,7 +220,7 @@ export default function DashboardPage() {
     };
   }, [data, dateInterval]);
 
-  if (!currentProperty || loading || !metrics) return (
+  if (!currentProperty || (!data && loading) || !metrics) return (
     <div className="h-[80vh] flex flex-col items-center justify-center space-y-4">
       <Loader2 className="h-10 w-10 animate-spin text-primary" />
       <p className="text-muted-foreground font-black uppercase tracking-widest text-[10px]">Analyzing Data Hub...</p>
