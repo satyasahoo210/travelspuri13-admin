@@ -22,15 +22,15 @@ import { usePathname } from 'next/navigation'
 import { PropertySwitcher } from './property-switcher'
 
 const baseNavItems = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, enabled: true },
-  { label: 'Calendar', href: '/calendar', icon: CalendarRange, enabled: true },
-  { label: 'Bookings', href: '/bookings', icon: Users, enabled: true },
-  { label: 'Inventory', href: '/inventory', icon: BedDouble, enabled: true},
-  { label: 'Housekeeping', href: '/housekeeping', icon: RefreshCcw, enabled: true },
-  { label: 'Rates', href: '/rates', icon: TrendingUp, enabled: true },
-  { label: 'Reports', href: '/reports', icon: BarChart3, enabled: true },
-  { label: 'Messages', href: '/messages', icon: MessageSquare, enabled: true },
-  { label: 'Settings', href: '/settings', icon: CreditCard, enabled: true },
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, showInBottomNav: true },
+  { label: 'Calendar', href: '/calendar', icon: CalendarRange, showInBottomNav: false },
+  { label: 'Bookings', href: '/bookings', icon: Users, showInBottomNav: true },
+  { label: 'Inventory', href: '/inventory', icon: BedDouble, showInBottomNav: true },
+  { label: 'Housekeeping', href: '/housekeeping', icon: RefreshCcw, showInBottomNav: true },
+  { label: 'Rates', href: '/rates', icon: TrendingUp, showInBottomNav: false },
+  { label: 'Reports', href: '/reports', icon: BarChart3, showInBottomNav: false },
+  { label: 'Messages', href: '/messages', icon: MessageSquare, showInBottomNav: false },
+  { label: 'Settings', href: '/settings', icon: CreditCard, showInBottomNav: false },
 ]
 
 export function Sidebar() {
@@ -41,10 +41,10 @@ export function Sidebar() {
 
   // Conditional Admin & Manage items
   if (user?.role === 'SUPER_ADMIN' || user?.role === 'TENANT_ADMIN') {
-    navItems.push({ label: 'Manage', href: '/manage', icon: Settings2, enabled: true })
+    navItems.push({ label: 'Manage', href: '/manage', icon: Settings2, showInBottomNav: false })
   }
   if (user?.role === 'SUPER_ADMIN') {
-    navItems.push({ label: 'Admin', href: '/admin', icon: ShieldAlert, enabled: true })
+    navItems.push({ label: 'Admin', href: '/admin', icon: ShieldAlert, showInBottomNav: false })
   }
 
   return (
@@ -57,14 +57,9 @@ export function Sidebar() {
       </div>
       <nav className="flex-1 px-4 space-y-1 overflow-y-auto scrollbar-none">
         {navItems.map((item) => (
-          <Link 
-            key={item.href} 
+          <Link
+            key={item.href}
             href={item.href}
-            aria-disabled={!item.enabled}
-            onClick={(e) => {
-              if (!item.enabled) e.preventDefault();
-            }}
-            className={!item.enabled ? "opacity-50 cursor-not-allowed" : ""}
           >
             <span
               className={cn(
@@ -114,14 +109,7 @@ export function Sidebar() {
 
 export function BottomNav() {
   const pathname = usePathname()
-  const { user } = useAuth()
-
-  const navItems = [...baseNavItems.slice(0, 5)] // Mobile only gets first 5
-
-  // Conditional Manage for mobile if space allows or replaces 5th item
-  if ((user?.role === 'SUPER_ADMIN' || user?.role === 'TENANT_ADMIN') && navItems.length >= 5) {
-      // Logic for mobile bottom nav can be tricky, keeping it simple for now
-  }
+  const navItems = [...baseNavItems.filter((item) => item.showInBottomNav).slice(0, 5)] // Mobile only gets first 5
 
   return (
     <div className="md:hidden fixed bottom-4 left-4 right-4 h-16 bg-white shadow-2xl shadow-slate-900/10 rounded-2xl border border-slate-200 flex items-center justify-around p-2 z-40">

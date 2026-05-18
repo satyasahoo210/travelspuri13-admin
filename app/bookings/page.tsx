@@ -34,6 +34,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Tables } from '@/database.types'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/utils/supabase/client'
@@ -219,14 +220,14 @@ function BookingsContent() {
 
         <Button
           onClick={() => router.push('/bookings/new')}
-          className="rounded-2xl h-14 px-8 bg-primary shadow-xl shadow-primary/20 hover:scale-[1.02] transition-all font-heading font-black tracking-tighter text-lg"
+          className="w-full md:w-auto rounded-2xl h-14 px-8 bg-primary shadow-xl shadow-primary/20 hover:scale-[1.02] transition-all font-heading font-black tracking-tighter text-lg"
         >
           <Plus className="mr-3 h-6 w-6" />
           NEW BOOKING
         </Button>
       </header>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1 group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-focus-within:text-primary transition-colors" />
           <Input
@@ -407,17 +408,17 @@ function BookingsContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="bg-slate-100 p-1 rounded-2xl h-14 mb-8">
-          <TabsTrigger value="upcoming" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
+        <TabsList className="bg-slate-100 p-1 rounded-2xl h-auto min-h-[56px] mb-8 w-full justify-start overflow-x-auto scrollbar-none flex-nowrap">
+          <TabsTrigger value="upcoming" className="rounded-xl font-black text-xs uppercase tracking-widest px-6 whitespace-nowrap shrink-0">
             Upcoming ({upcomingBookings?.length || 0})
           </TabsTrigger>
-          <TabsTrigger value="checkedin" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
+          <TabsTrigger value="checkedin" className="rounded-xl font-black text-xs uppercase tracking-widest px-6 whitespace-nowrap shrink-0">
             Checked In ({checkedInBookings?.length || 0})
           </TabsTrigger>
-          <TabsTrigger value="past" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
+          <TabsTrigger value="past" className="rounded-xl font-black text-xs uppercase tracking-widest px-6 whitespace-nowrap shrink-0">
             Past ({pastBookings?.length || 0})
           </TabsTrigger>
-          <TabsTrigger value="cancelled" className="rounded-xl font-black text-xs uppercase tracking-widest px-8">
+          <TabsTrigger value="cancelled" className="rounded-xl font-black text-xs uppercase tracking-widest px-6 whitespace-nowrap shrink-0">
             Cancelled ({cancelledBookings?.length || 0})
           </TabsTrigger>
         </TabsList>
@@ -502,15 +503,15 @@ function BookingList({
               onClick={() => onBookingClick(booking)}
             >
               <Card className="border-slate-200 hover:border-primary/30 cursor-pointer overflow-hidden group transition-all hover:shadow-xl hover:shadow-slate-200/50 rounded-3xl bg-white shadow-sm">
-                <CardContent className="p-6">
-                  <div className="flex flex-col md:flex-row md:items-center gap-6">
-                    <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 group-hover:bg-primary/5 group-hover:border-primary/10 transition-colors">
-                      <User className="h-6 w-6 text-slate-400 group-hover:text-primary" />
+                <CardContent className="p-4 md:p-6">
+                  <div className="flex flex-row items-start md:items-center gap-4 md:gap-6">
+                    <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-slate-50 border border-slate-100 hidden sm:flex items-center justify-center shrink-0 group-hover:bg-primary/5 group-hover:border-primary/10 transition-colors">
+                      <User className="h-5 w-5 md:h-6 md:w-6 text-slate-400 group-hover:text-primary" />
                     </div>
 
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-6 items-center">
+                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 items-start md:items-center w-full">
                       <div className="space-y-1">
-                        <p className="text-xl font-heading font-black tracking-tighter text-slate-900">
+                        <p className="text-lg md:text-xl font-heading font-black tracking-tighter text-slate-900">
                           {booking.Guest?.name || 'Guest Not Found'}
                         </p>
                         <div className="flex items-center gap-2 text-slate-400">
@@ -521,7 +522,7 @@ function BookingList({
                         </div>
                       </div>
 
-                      <div className="space-y-1">
+                      <div className="space-y-1 flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-start w-full">
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4 text-primary" />
                           <p className="text-sm font-black tracking-tight text-slate-900">
@@ -529,12 +530,12 @@ function BookingList({
                             {format(new Date(booking.checkOutDate), 'MMM d')}
                           </p>
                         </div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-6">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest sm:ml-6">
                           {format(new Date(booking.checkOutDate), 'yyyy')}
                         </p>
                       </div>
 
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-start gap-2 w-full">
                         <div className="flex items-center gap-2">
                           <BedDouble className="w-4 h-4 text-slate-400" />
                           <span className="text-sm font-black text-slate-900">
@@ -560,12 +561,12 @@ function BookingList({
                         </Badge>
                       </div>
 
-                      <div className="flex flex-col md:justify-end">
-                        <div className="text-right">
-                          <p className="text-xs font-black text-slate-400 uppercase tracking-tighter mb-1">
+                      <div className="flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end mt-2 md:mt-0 pt-4 md:pt-0 border-t border-slate-100 md:border-none w-full">
+                        <div className="text-left md:text-right">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-tighter mb-1 hidden md:block">
                             Total Amount
                           </p>
-                          <p className="text-2xl font-heading font-black tracking-tighter text-slate-900">
+                          <p className="text-xl md:text-2xl font-heading font-black tracking-tighter text-slate-900">
                             ₹{(booking.totalAmount || 0).toLocaleString()}
                           </p>
                         </div>
@@ -576,6 +577,72 @@ function BookingList({
                             </p>
                           </div>
                         )}
+                        
+                        <div className="mt-3 w-full flex justify-end gap-2">
+                          {(booking.status === 'CONFIRMED' || booking.status === 'PENDING') && (
+                            <Button 
+                              size="sm" 
+                              className="w-full md:w-auto text-[10px] font-black tracking-widest uppercase rounded-xl bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const supabase = createClient()
+                                await supabase.from('Booking').update({ status: 'CHECKED_IN' } as any).eq('id', booking.id)
+                                window.location.reload() // simple refresh
+                              }}
+                            >
+                              Check In
+                            </Button>
+                          )}
+                          
+                          {booking.status === 'CHECKED_IN' && getTotalDue(booking) > 0 && (
+                            <Button 
+                              size="sm" 
+                              className="w-full md:w-auto text-[10px] font-black tracking-widest uppercase rounded-xl bg-blue-500 hover:bg-blue-600 shadow-md shadow-blue-500/20"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                // Navigate to details page to record payment
+                                window.location.href = `/bookings/${booking.id}`
+                              }}
+                            >
+                              Record Payment
+                            </Button>
+                          )}
+
+                          {booking.status === 'CHECKED_IN' && getTotalDue(booking) <= 0 && (
+                            <AlertDialog>
+                              <AlertDialogTrigger render={
+                                <Button 
+                                  size="sm" 
+                                  className="w-full md:w-auto text-[10px] font-black tracking-widest uppercase rounded-xl bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-500/20"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              }>
+                                Check Out
+                              </AlertDialogTrigger>
+                              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Confirm Check Out</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to check out this booking? This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
+                                      const supabase = createClient()
+                                      await supabase.from('Booking').update({ status: 'CHECKED_OUT', actualCheckOut: new Date().toISOString() } as any).eq('id', booking.id)
+                                      window.location.reload()
+                                    }}
+                                  >
+                                    Confirm Check Out
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -587,7 +654,7 @@ function BookingList({
       </AnimatePresence>
 
       {!loading && (!bookings || bookings.length === 0) && (
-        <div className="text-center py-32 bg-white rounded-[3rem] border border-slate-200 shadow-sm">
+        <div className="text-center py-16 md:py-32 bg-white rounded-[3rem] border border-slate-200 shadow-sm">
           <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
             <Calendar className="h-10 w-10 text-slate-200" />
           </div>

@@ -21,6 +21,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SearchableCombobox } from '@/components/ui/searchable-combobox'
@@ -57,6 +68,7 @@ import {
   Plus,
   Printer,
   Receipt,
+  RefreshCw,
   Trash2,
   User,
   XCircle
@@ -121,6 +133,12 @@ export default function BookingDetailPage() {
   const [gstin, setGstin] = useState('')
   const [grNumber, setGrNumber] = useState('')
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
+  const [isAddRoomDialogOpen, setIsAddRoomDialogOpen] = useState(false)
+  const [isSwitchRoomDialogOpen, setIsSwitchRoomDialogOpen] = useState(false)
+  const [roomToSwitch, setRoomToSwitch] = useState<BookingRoom | null>(null)
+  const [selectedRoomId, setSelectedRoomId] = useState('')
+  const [roomCheckInDate, setRoomCheckInDate] = useState('')
+  const [roomCheckOutDate, setRoomCheckOutDate] = useState('')
 
   const fetchFolioData = useCallback(async () => {
     if (!id) return
@@ -215,34 +233,45 @@ export default function BookingDetailPage() {
         tax: 0,
       }
 
-    const checkInDate = new Date(f.checkInDate)
-    const checkOutDate = new Date(f.checkOutDate)
+    const bookingCheckInDate = new Date(f.checkInDate)
+    const bookingCheckOutDate = new Date(f.checkOutDate)
 
-    let nights = differenceInCalendarDays(checkOutDate, checkInDate)
-    const checkOutTimeStr = format(checkOutDate, 'HH:mm:ss')
+    const checkOutTimeStr = format(bookingCheckOutDate, 'HH:mm:ss')
     const propCheckOutTime = p.settings?.checkoutTime
       ? `${p.settings.checkoutTime}:00`
       : (p.checkOutTime || '07:00:00')
 
+    let defaultNights = differenceInCalendarDays(bookingCheckOutDate, bookingCheckInDate)
     if (checkOutTimeStr > propCheckOutTime) {
-      nights += 1
+      defaultNights += 1
     }
-
     if (f.waiveLastDayCharge) {
-      nights -= 1
+      defaultNights -= 1
     }
+    defaultNights = Math.max(1, defaultNights)
 
-    nights = Math.max(1, nights)
+    const totalRoomCharges = a.reduce((sum, item) => {
+      const itemCheckIn = item.checkInDate ? new Date(item.checkInDate) : bookingCheckInDate
+      const itemCheckOut = item.checkOutDate ? new Date(item.checkOutDate) : bookingCheckOutDate
+      
+      let roomNights = differenceInCalendarDays(itemCheckOut, itemCheckIn)
+      
+      // Only apply late checkout extra charge/waiver if we fall back to booking dates
+      if (!item.checkOutDate) {
+        if (checkOutTimeStr > propCheckOutTime) {
+          roomNights += 1
+        }
+        if (f.waiveLastDayCharge) {
+          roomNights -= 1
+        }
+      }
+      
+      roomNights = Math.max(1, roomNights)
+      
+      const price = Number(item.priceOverride) || Number(item.RoomType?.defaultPrice) || 0
+      return sum + (price * roomNights)
+    }, 0)
 
-    const roomSubtotal = a.reduce(
-      (sum, item) =>
-        sum +
-        (Number(item.priceOverride) ||
-          Number(item.RoomType?.defaultPrice) ||
-          0),
-      0,
-    )
-    const totalRoomCharges = roomSubtotal * nights
     const serviceSubtotal = s.reduce(
       (sum, item) => sum + Number(item.totalPrice),
       0,
@@ -260,12 +289,24 @@ export default function BookingDetailPage() {
 
     return {
       total: finalTotal,
-      nights,
+      nights: defaultNights,
       roomTotal: totalRoomCharges,
       serviceTotal: serviceSubtotal,
       subtotal,
       discount: discountAmount,
       tax,
+    }
+  }
+
+  const syncBookingTotal = async (updatedAssignments = assignments, updatedServices = services, updatedFolio = folio) => {
+    if (!updatedFolio) return
+    const { total: newTotal } = calculateCurrentTotal(updatedFolio, updatedAssignments, updatedServices)
+    const { error } = await supabase
+      .from('Booking')
+      .update({ totalAmount: newTotal } as any)
+      .eq('id', updatedFolio.id)
+    if (!error) {
+      setFolio({ ...updatedFolio, totalAmount: newTotal })
     }
   }
 
@@ -401,7 +442,11 @@ export default function BookingDetailPage() {
       .select('*, Service(*)')
       .single()
 
-    if (!error && data) setServices([...services, data])
+    if (!error && data) {
+      const nextServices = [...services, data]
+      setServices(nextServices)
+      await syncBookingTotal(assignments, nextServices)
+    }
   }
 
   const updateServiceQuantity = async (id: string, newQty: number) => {
@@ -416,11 +461,13 @@ export default function BookingDetailPage() {
       .eq('id', id)
 
     if (!error) {
-      setServices(services.map((s) => s.id === id ? { ...s, quantity: newQty, totalPrice: newTotal } : s))
+      const nextServices = services.map((s) => s.id === id ? { ...s, quantity: newQty, totalPrice: newTotal } : s)
+      setServices(nextServices)
+      await syncBookingTotal(assignments, nextServices)
     }
   }
 
-  const handleAddRoom = async (roomId: string) => {
+  const handleAddRoom = async (roomId: string, checkIn?: string, checkOut?: string) => {
     const room = availableRooms.find((r) => r.id === roomId)
     if (!room || !folio) return
 
@@ -431,11 +478,48 @@ export default function BookingDetailPage() {
         roomId: room.id,
         roomTypeId: room.roomTypeId,
         status: 'CONFIRMED',
+        checkInDate: checkIn || null,
+        checkOutDate: checkOut || null,
       }])
       .select('*, Room(*), RoomType(*)')
       .single()
 
-    if (!error && data) setAssignments([...assignments, data])
+    if (!error && data) {
+      const nextAssignments = [...assignments, data]
+      setAssignments(nextAssignments)
+      await syncBookingTotal(nextAssignments)
+    }
+  }
+
+  const handleSwitchRoom = async (assignmentId: string, newRoomId: string) => {
+    const newRoom = availableRooms.find((r) => r.id === newRoomId)
+    if (!newRoom || !folio) return
+
+    const { error } = await supabase
+      .from('BookingRoom')
+      .update({
+        roomId: newRoom.id,
+        roomTypeId: newRoom.roomTypeId,
+        priceOverride: null, // Reset price override on switch to use new room type default
+      })
+      .eq('id', assignmentId)
+
+    if (!error) {
+      const nextAssignments = assignments.map(a => 
+        a.id === assignmentId 
+          ? { 
+              ...a, 
+              roomId: newRoom.id, 
+              roomTypeId: newRoom.roomTypeId, 
+              priceOverride: null,
+              Room: newRoom, 
+              RoomType: newRoom.RoomType 
+            } 
+          : a
+      )
+      setAssignments(nextAssignments)
+      await syncBookingTotal(nextAssignments)
+    }
   }
 
   const handleRemoveRoom = async (assignmentId: string) => {
@@ -443,7 +527,11 @@ export default function BookingDetailPage() {
       .from('BookingRoom')
       .delete()
       .eq('id', assignmentId)
-    if (!error) setAssignments(assignments.filter((a) => a.id !== assignmentId))
+    if (!error) {
+      const nextAssignments = assignments.filter((a) => a.id !== assignmentId)
+      setAssignments(nextAssignments)
+      await syncBookingTotal(nextAssignments)
+    }
   }
 
   const handleRemoveService = async (serviceId: string) => {
@@ -451,7 +539,11 @@ export default function BookingDetailPage() {
       .from('BookingService')
       .delete()
       .eq('id', serviceId)
-    if (!error) setServices(services.filter((s) => s.id !== serviceId))
+    if (!error) {
+      const nextServices = services.filter((s) => s.id !== serviceId)
+      setServices(nextServices)
+      await syncBookingTotal(assignments, nextServices)
+    }
   }
 
   const handleUpdateRoomPrice = async (assignmentId: string, newPrice: number) => {
@@ -461,7 +553,9 @@ export default function BookingDetailPage() {
       .eq('id', assignmentId)
 
     if (!error) {
-      setAssignments(assignments.map(a => a.id === assignmentId ? { ...a, priceOverride: newPrice } : a))
+      const nextAssignments = assignments.map(a => a.id === assignmentId ? { ...a, priceOverride: newPrice } : a)
+      setAssignments(nextAssignments)
+      await syncBookingTotal(nextAssignments)
     }
   }
 
@@ -592,13 +686,28 @@ export default function BookingDetailPage() {
               Record Payment
             </Button>
           ) : (folio.status === 'CHECKED_IN' && totalDue <= 0) ? (
-            <Button
-              className="rounded-2xl h-14 px-8 font-black uppercase text-xs tracking-widest bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-500/20"
-              onClick={handleCheckOut}
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              Check Out
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger render={
+                <Button
+                  className="rounded-2xl h-14 px-8 font-black uppercase text-xs tracking-widest bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-500/20"
+                />
+              }>
+                <LogOut className="mr-2 h-4 w-4" />
+                Check Out
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirm Check Out</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to check out this booking? This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleCheckOut}>Confirm Check Out</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           ) : (
             <Button
               className="rounded-2xl h-14 px-8 font-black uppercase text-xs tracking-widest bg-slate-900 hover:bg-slate-800"
@@ -990,11 +1099,22 @@ export default function BookingDetailPage() {
                       <p className="text-sm font-black text-slate-900">Room Assignments</p>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Manage linked rooms</p>
                     </div>
-                    <SelectRoom
-                      onAdd={handleAddRoom}
-                      rooms={availableRooms}
-                      existingIds={assignments.map((a) => a.roomId!)}
-                    />
+                    {(folio?.status === 'CONFIRMED' || folio?.status === 'CHECKED_IN') ? (
+                      <Button
+                        size="sm"
+                        className="rounded-xl font-black uppercase text-[10px] tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20"
+                        onClick={() => {
+                          setSelectedRoomId('')
+                          setRoomCheckInDate(folio ? format(new Date(folio.checkInDate), 'yyyy-MM-dd') : '')
+                          setRoomCheckOutDate(folio ? format(new Date(folio.checkOutDate), 'yyyy-MM-dd') : '')
+                          setIsAddRoomDialogOpen(true)
+                        }}
+                      >
+                        <Plus className="h-3 w-3 mr-1" /> Add Room
+                      </Button>
+                    ) : (
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Read Only</span>
+                    )}
                   </div>
 
                   <div className="space-y-3">
@@ -1004,14 +1124,169 @@ export default function BookingDetailPage() {
                           <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-black text-primary">
                             {a.Room?.roomNumber}
                           </div>
-                          <span className="font-black text-slate-700">{a.RoomType?.name}</span>
+                          <div className="flex flex-col">
+                            <span className="font-black text-slate-700">{a.RoomType?.name}</span>
+                            {a.checkInDate && (
+                              <span className="text-[10px] font-bold text-slate-400">
+                                Timeline: {format(new Date(a.checkInDate), 'dd MMM')} - {a.checkOutDate ? format(new Date(a.checkOutDate), 'dd MMM') : 'Checkout'}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <Button variant="ghost" size="icon" className="text-rose-500 hover:bg-rose-50" onClick={() => handleRemoveRoom(a.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {(folio?.status === 'CONFIRMED' || folio?.status === 'CHECKED_IN') && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="rounded-xl font-black uppercase text-[10px] tracking-widest text-indigo-600 hover:bg-indigo-50"
+                              onClick={() => {
+                                setRoomToSwitch(a)
+                                setSelectedRoomId('')
+                                setIsSwitchRoomDialogOpen(true)
+                              }}
+                            >
+                              Switch Room
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="icon" className="text-rose-500 hover:bg-rose-50" onClick={() => handleRemoveRoom(a.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
+
+                  {/* Add Room Dialog */}
+                  <Dialog open={isAddRoomDialogOpen} onOpenChange={setIsAddRoomDialogOpen}>
+                    <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-none shadow-3xl">
+                      <div className="p-8 space-y-6 bg-white rounded-[3rem]">
+                        <div>
+                          <h3 className="text-2xl font-heading font-black tracking-tighter text-slate-900 leading-none">Add Room</h3>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Add a room with timeline override</p>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select Room</Label>
+                            <Select value={selectedRoomId} onValueChange={(val) => setSelectedRoomId(val || '')}>
+                              <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
+                                <SelectValue placeholder="Select a room" />
+                              </SelectTrigger>
+                              <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
+                                {availableRooms
+                                  .filter((r) => r.status === 'AVAILABLE' && !assignments.some((a) => a.roomId === r.id))
+                                  .map((r) => (
+                                    <SelectItem key={r.id} value={r.id} className="rounded-xl font-bold">
+                                      Room {r.roomNumber} ({r.RoomType?.name} - ₹{r.RoomType?.defaultPrice}/night)
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-In Date</Label>
+                            <Input
+                              type="date"
+                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                              value={roomCheckInDate}
+                              onChange={(e) => setRoomCheckInDate(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-Out Date (Optional)</Label>
+                            <Input
+                              type="date"
+                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                              value={roomCheckOutDate}
+                              onChange={(e) => setRoomCheckOutDate(e.target.value)}
+                              placeholder="Keep empty to match overall booking"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex gap-3 justify-end pt-2">
+                          <Button
+                            variant="outline"
+                            className="rounded-2xl h-12 px-6 border-slate-200 font-black uppercase text-[10px] tracking-widest"
+                            onClick={() => setIsAddRoomDialogOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            className="rounded-2xl h-12 px-6 bg-slate-900 hover:bg-slate-800 font-black uppercase text-[10px] tracking-widest"
+                            disabled={!selectedRoomId || !roomCheckInDate}
+                            onClick={async () => {
+                              await handleAddRoom(selectedRoomId, roomCheckInDate, roomCheckOutDate || undefined)
+                              setIsAddRoomDialogOpen(false)
+                            }}
+                          >
+                            Confirm Add
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Switch Room Dialog */}
+                  <Dialog open={isSwitchRoomDialogOpen} onOpenChange={setIsSwitchRoomDialogOpen}>
+                    <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-none shadow-3xl">
+                      <div className="p-8 space-y-6 bg-white rounded-[3rem]">
+                        <div>
+                          <h3 className="text-2xl font-heading font-black tracking-tighter text-slate-900 leading-none">Switch Room</h3>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Move guest to a different available room</p>
+                        </div>
+                        
+                        {roomToSwitch && (
+                          <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
+                            <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">Current Assignment</p>
+                            <p className="font-black text-slate-900 text-sm">Room {roomToSwitch.Room?.roomNumber} ({roomToSwitch.RoomType?.name})</p>
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select New Room</Label>
+                          <Select value={selectedRoomId} onValueChange={(val) => setSelectedRoomId(val || '')}>
+                            <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
+                              <SelectValue placeholder="Select new room" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
+                              {availableRooms
+                                .filter((r) => r.status === 'AVAILABLE' && !assignments.some((a) => a.roomId === r.id))
+                                .map((r) => (
+                                  <SelectItem key={r.id} value={r.id} className="rounded-xl font-bold">
+                                    Room {r.roomNumber} ({r.RoomType?.name} - ₹{r.RoomType?.defaultPrice}/night)
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="flex gap-3 justify-end pt-2">
+                          <Button
+                            variant="outline"
+                            className="rounded-2xl h-12 px-6 border-slate-200 font-black uppercase text-[10px] tracking-widest"
+                            onClick={() => setIsSwitchRoomDialogOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            className="rounded-2xl h-12 px-6 bg-indigo-600 hover:bg-indigo-700 font-black uppercase text-[10px] tracking-widest text-white shadow-lg shadow-indigo-500/20"
+                            disabled={!selectedRoomId || !roomToSwitch}
+                            onClick={async () => {
+                              if (roomToSwitch) {
+                                await handleSwitchRoom(roomToSwitch.id, selectedRoomId)
+                              }
+                              setIsSwitchRoomDialogOpen(false)
+                            }}
+                          >
+                            Confirm Switch
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </CardContent>
               </Card>
             </TabsContent>

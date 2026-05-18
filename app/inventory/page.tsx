@@ -30,10 +30,11 @@ export default function InventoryPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const supabase = createClient();
   const [isLoading, setIsLoading] = useState(true);
-  
+
   // Form State
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGridExpanded, setIsGridExpanded] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     capacity: 2,
@@ -44,7 +45,7 @@ export default function InventoryPage() {
   const loadData = async () => {
     if (!currentProperty) return;
     setIsLoading(true);
-    
+
     try {
       const [rtRes, rRes, bRes] = await Promise.all([
         supabase.from('RoomType').select('*').eq('propertyId', currentProperty.id),
@@ -83,7 +84,7 @@ export default function InventoryPage() {
   const handleAddRoomType = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentProperty) return;
-    
+
     setIsSubmitting(true);
     try {
       const { error } = await supabase.from('RoomType').insert({
@@ -105,9 +106,9 @@ export default function InventoryPage() {
     }
   };
 
-  const days = useMemo(() => 
+  const days = useMemo(() =>
     Array.from({ length: 14 }).map((_, i) => addDays(new Date(), i))
-  , []);
+    , []);
 
   const getAvailability = (roomTypeId: string, date: Date) => {
     const totalRooms = rooms.filter(r => r.roomTypeId === roomTypeId).length;
@@ -120,7 +121,7 @@ export default function InventoryPage() {
       });
 
       if (isOccupied) {
-        const roomsOfTypeInBooking = (b.BookingRoom || []).filter((br: any) => 
+        const roomsOfTypeInBooking = (b.BookingRoom || []).filter((br: any) =>
           br.roomTypeId === roomTypeId
         ).length;
         occupiedOnDay += roomsOfTypeInBooking;
@@ -138,7 +139,7 @@ export default function InventoryPage() {
   );
 
   return (
-    <div className="p-4 md:p-8 space-y-10 max-w-7xl mx-auto">
+    <div className="p-4 md:p-8 space-y-10 w-full max-w-full overflow-x-hidden">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="space-y-1">
           <h1 className="text-4xl font-black tracking-tight text-slate-900 uppercase">Inventory Grid</h1>
@@ -146,14 +147,14 @@ export default function InventoryPage() {
             <Info className="h-4 w-4" /> Manage your room products and real-time availability.
           </p>
         </div>
-        
+
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
           <DialogTrigger render={
-            <Button className="h-14 px-8 rounded-2xl shadow-xl shadow-primary/20 font-black uppercase tracking-widest text-[11px] gap-3" />
+            <Button className="w-full md:w-auto h-14 px-8 rounded-2xl shadow-xl shadow-primary/20 font-black uppercase tracking-widest text-[11px] gap-3" />
           }>
-              <Plus className="h-5 w-5" /> Add Room Type
+            <Plus className="h-5 w-5" /> Add Room Type
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[450px] rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-0">
+          <DialogContent className="w-[95vw] sm:max-w-[450px] rounded-[2.5rem] border-none shadow-2xl overflow-hidden p-0 max-h-[90vh] overflow-y-auto">
             <div className="bg-slate-900 p-8 text-white">
               <DialogTitle className="text-2xl font-black uppercase tracking-tight">Create Room Type</DialogTitle>
               <DialogDescription className="text-white/60 font-medium">Define a new category of rooms for your property.</DialogDescription>
@@ -161,34 +162,34 @@ export default function InventoryPage() {
             <form onSubmit={handleAddRoomType} className="p-8 space-y-6">
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Category Name</Label>
-                <Input 
-                  placeholder="e.g. Executive Suite" 
+                <Input
+                  placeholder="e.g. Executive Suite"
                   required
                   value={formData.name}
-                  onChange={e => setFormData({...formData, name: e.target.value})}
+                  onChange={e => setFormData({ ...formData, name: e.target.value })}
                   className="h-12 rounded-xl bg-slate-50 border-none font-bold"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Max Capacity</Label>
-                  <Input 
-                    type="number" 
+                  <Input
+                    type="number"
                     min="1"
                     required
                     value={formData.capacity}
-                    onChange={e => setFormData({...formData, capacity: parseInt(e.target.value)})}
+                    onChange={e => setFormData({ ...formData, capacity: parseInt(e.target.value) })}
                     className="h-12 rounded-xl bg-slate-50 border-none font-bold"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Base Rate (₹)</Label>
-                  <Input 
-                    type="number" 
+                  <Input
+                    type="number"
                     min="0"
                     required
                     value={formData.defaultPrice}
-                    onChange={e => setFormData({...formData, defaultPrice: parseFloat(e.target.value)})}
+                    onChange={e => setFormData({ ...formData, defaultPrice: parseFloat(e.target.value) })}
                     className="h-12 rounded-xl bg-slate-50 border-none font-bold text-primary"
                   />
                 </div>
@@ -205,11 +206,11 @@ export default function InventoryPage() {
       </header>
 
       <Tabs defaultValue="grid" className="w-full">
-        <TabsList className="bg-slate-100 p-1.5 rounded-2xl inline-flex gap-1 mb-8 shadow-inner">
-          <TabsTrigger value="grid" className="rounded-xl px-8 py-3 data-[state=active]:bg-white data-[state=active]:shadow-lg font-black uppercase tracking-widest text-[10px] transition-all">
+        <TabsList className="bg-slate-100 p-1.5 rounded-2xl inline-flex gap-1 mb-8 shadow-inner w-full justify-start overflow-x-auto scrollbar-none flex-nowrap">
+          <TabsTrigger value="grid" className="rounded-xl px-8 py-3 data-[state=active]:bg-white data-[state=active]:shadow-lg font-black uppercase tracking-widest text-[10px] transition-all whitespace-nowrap shrink-0">
             Availability Grid
           </TabsTrigger>
-          <TabsTrigger value="types" className="rounded-xl px-8 py-3 data-[state=active]:bg-white data-[state=active]:shadow-lg font-black uppercase tracking-widest text-[10px] transition-all">
+          <TabsTrigger value="types" className="rounded-xl px-8 py-3 data-[state=active]:bg-white data-[state=active]:shadow-lg font-black uppercase tracking-widest text-[10px] transition-all whitespace-nowrap shrink-0">
             Room Products
           </TabsTrigger>
         </TabsList>
@@ -226,13 +227,19 @@ export default function InventoryPage() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto w-full max-w-full">
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="bg-slate-50/50">
-                      <th className="p-8 text-left font-black uppercase tracking-widest text-[10px] text-slate-400 border-b border-r border-slate-100 min-w-[220px]">Room Category</th>
-                      {days.map(day => (
-                        <th key={day.toISOString()} className="p-4 text-center border-b border-slate-100 min-w-[80px]">
+                      <th className="p-8 text-left font-black uppercase tracking-widest text-[10px] text-slate-400 border-b border-r border-slate-100 min-w-[180px] sm:min-w-[220px] sticky left-0 z-20 bg-slate-50/95 backdrop-blur-md shadow-[4px_0_12px_rgba(0,0,0,0.02)]">Room Category</th>
+                      {days.map((day, index) => (
+                        <th 
+                          key={day.toISOString()} 
+                          className={cn(
+                            "p-4 text-center border-b border-slate-100 min-w-[80px]",
+                            !isGridExpanded && index > 1 ? "hidden md:table-cell" : ""
+                          )}
+                        >
                           <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{format(day, 'EEE')}</div>
                           <div className={cn(
                             "text-base font-black w-10 h-10 mx-auto flex items-center justify-center rounded-xl",
@@ -247,27 +254,33 @@ export default function InventoryPage() {
                   <tbody className="bg-white/30">
                     {roomTypes.map(type => (
                       <tr key={type.id} className="hover:bg-white/80 transition-all group">
-                        <td className="p-8 border-b border-r border-slate-100 bg-white/50 backdrop-blur-md">
+                        <td className="p-4 sm:p-8 border-b border-r border-slate-100 bg-white/95 backdrop-blur-md sticky left-0 z-10 shadow-[4px_0_12px_rgba(0,0,0,0.02)] group-hover:bg-slate-50/95 transition-colors">
                           <div className="font-black text-slate-900 tracking-tight text-base group-hover:text-primary transition-colors">{type.name}</div>
                           <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">Base Rate: ₹{Number(type.defaultPrice).toLocaleString()}</div>
                         </td>
-                        {days.map(day => {
+                        {days.map((day, index) => {
                           const avail = getAvailability(type.id, day);
                           const total = rooms.filter(r => r.roomTypeId === type.id).length;
-                          
+
                           return (
-                            <td key={day.toISOString()} className="p-4 border-b border-slate-100 text-center">
-                              <motion.div 
+                            <td 
+                              key={day.toISOString()} 
+                              className={cn(
+                                "p-4 border-b border-slate-100 text-center",
+                                !isGridExpanded && index > 1 ? "hidden md:table-cell" : ""
+                              )}
+                            >
+                              <motion.div
                                 initial={false}
                                 animate={{ scale: [0.95, 1], opacity: [0, 1] }}
                                 className={cn(
-                                "w-12 h-12 mx-auto rounded-2xl flex items-center justify-center text-sm font-black transition-all shadow-sm",
-                                avail <= 0 
-                                  ? "bg-slate-900 text-white border-none" 
-                                  : avail <= 2
-                                  ? "bg-amber-100 text-amber-700 border border-amber-200"
-                                  : "bg-white text-emerald-600 border border-slate-100 group-hover:border-primary/20"
-                              )}>
+                                  "w-12 h-12 mx-auto rounded-2xl flex items-center justify-center text-sm font-black transition-all shadow-sm",
+                                  avail <= 0
+                                    ? "bg-slate-900 text-white border-none"
+                                    : avail <= 2
+                                      ? "bg-amber-100 text-amber-700 border border-amber-200"
+                                      : "bg-white text-emerald-600 border border-slate-100 group-hover:border-primary/20"
+                                )}>
                                 {avail}
                               </motion.div>
                             </td>
@@ -277,6 +290,15 @@ export default function InventoryPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="p-2 border-t border-slate-100 md:hidden flex justify-center bg-slate-50/50">
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setIsGridExpanded(!isGridExpanded)}
+                  className="font-black text-[10px] uppercase tracking-widest text-slate-400 hover:text-primary transition-colors h-10"
+                >
+                  {isGridExpanded ? 'Show Less' : 'More'}
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -319,7 +341,7 @@ export default function InventoryPage() {
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Units</p>
                       </div>
                     </div>
-                    
+
                     <div className="pt-6 border-t border-slate-100 flex gap-4">
                       <Link href="/rooms" className="flex-1">
                         <Button variant="outline" className="w-full h-12 rounded-xl font-bold border-slate-200 hover:bg-slate-50">Manage Rooms</Button>
