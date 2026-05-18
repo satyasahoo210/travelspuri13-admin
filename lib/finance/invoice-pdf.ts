@@ -1,5 +1,5 @@
 import { Tables } from '@/database.types'
-import { differenceInDays, format } from 'date-fns'
+import { differenceInCalendarDays, differenceInDays, format } from 'date-fns'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
@@ -24,7 +24,14 @@ type Room = Tables<'Room'> & {
 }
 
 type Service = Tables<'Service'>
-type Property = Tables<'Property'>
+type Property = Tables<'Property'> & {
+  settings: {
+    defaultTaxEnabled: boolean;
+    taxAmount?: number;
+    checkinTime: string;
+    checkoutTime: string;
+  } | null;
+}
 type Payment = Tables<'Payment'>
 type PaymentStatus = Tables<'Payment'>['status']
 
@@ -106,7 +113,7 @@ const getImageData = async (url: string): Promise<{ base64: string, width: numbe
       }
       ctx.drawImage(img, 0, 0)
       resolve({
-        base64: canvas.toDataURL('image/jpeg', 0.8),
+        base64: canvas.toDataURL('image/png'),
         width: img.width,
         height: img.height
       })
@@ -114,6 +121,37 @@ const getImageData = async (url: string): Promise<{ base64: string, width: numbe
     img.onerror = (e) => reject(e)
     img.src = url
   })
+}
+
+const getRoomStayNights = (
+  item: BookingRoom,
+  f: Booking,
+  p: Property
+) => {
+  const bookingCheckInDate = new Date(f.checkInDate)
+  const bookingCheckOutDate = new Date(f.checkOutDate)
+
+  const checkOutTimeStr = format(bookingCheckOutDate, 'HH:mm:ss')
+  const propCheckOutTime = p.settings?.checkoutTime
+    ? `${p.settings.checkoutTime}:00`
+    : (p.checkOutTime || '07:00:00')
+
+  const itemCheckIn = item.checkInDate ? new Date(item.checkInDate) : bookingCheckInDate
+  const itemCheckOut = item.checkOutDate ? new Date(item.checkOutDate) : bookingCheckOutDate
+  
+  let roomNights = differenceInCalendarDays(itemCheckOut, itemCheckIn)
+  
+  // Only apply late checkout extra charge/waiver if we fall back to booking dates
+  if (!item.checkOutDate) {
+    if (checkOutTimeStr > propCheckOutTime) {
+      roomNights += 1
+    }
+    if (f.waiveLastDayCharge) {
+      roomNights -= 1
+    }
+  }
+  
+  return Math.max(1, roomNights)
 }
 
 export const generateInvoicePDF = async (
@@ -355,15 +393,33 @@ export const generateInvoicePDF = async (
     doc.setFont('helvetica', 'bold')
     doc.text('CHARGES & SERVICES', margin, currentY)
     currentY += 7
-    const totalNights = totals.nights
     const chargesData: Array<string[]> = []
   
-    const totalRoomCharges = totals.roomTotal
-  
-    chargesData.push([
-      `Accommodation (${totalNights} Night(s) x ${assignments.length} Room(s))`,
-      `INR ${totalRoomCharges.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
-    ])
+    // Group assignments by number of nights
+    const assignmentsByNights = new Map<number, BookingRoom[]>()
+    assignments.forEach((a) => {
+      const roomNights = getRoomStayNights(a, folio, property)
+      if (!assignmentsByNights.has(roomNights)) {
+        assignmentsByNights.set(roomNights, [])
+      }
+      assignmentsByNights.get(roomNights)!.push(a)
+    })
+
+    // Add a chargesData row for each group
+    const sortedNights = Array.from(assignmentsByNights.keys()).sort((x, y) => y - x)
+    
+    sortedNights.forEach((nights) => {
+      const groupAssignments = assignmentsByNights.get(nights)!
+      const groupCharges = groupAssignments.reduce((sum, item) => {
+        const price = Number(item.priceOverride) || Number(item.RoomType?.defaultPrice) || 0
+        return sum + (price * nights)
+      }, 0)
+      
+      chargesData.push([
+        `Accommodation (${nights} Night(s) x ${groupAssignments.length} Room(s))`,
+        `INR ${groupCharges.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+      ])
+    })
   
     services.forEach((s) => {
       chargesData.push([

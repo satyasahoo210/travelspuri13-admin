@@ -5,22 +5,6 @@
  * Supports room assignments, billing, services, payments, and invoice generation.
  */
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +16,21 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SearchableCombobox } from '@/components/ui/searchable-combobox'
@@ -50,7 +49,6 @@ import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/utils/supabase/client'
 import { differenceInCalendarDays, format, isBefore } from 'date-fns'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
-import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertCircle,
   ArrowLeft,
@@ -59,16 +57,13 @@ import {
   CreditCard,
   Download,
   ExternalLink,
-  FileText,
   Info,
-  Loader2,
   LogIn,
   LogOut,
   MoreHorizontal,
   Plus,
   Printer,
   Receipt,
-  RefreshCw,
   Trash2,
   User,
   XCircle
@@ -217,6 +212,39 @@ export default function BookingDetailPage() {
     fetchFolioData()
   }, [fetchFolioData])
 
+  const getRoomStayNights = useCallback((
+    item: BookingRoom,
+    f = folio,
+    p = property
+  ) => {
+    if (!f || !p) return 1
+
+    const bookingCheckInDate = new Date(f.checkInDate)
+    const bookingCheckOutDate = new Date(f.checkOutDate)
+
+    const checkOutTimeStr = format(bookingCheckOutDate, 'HH:mm:ss')
+    const propCheckOutTime = p.settings?.checkoutTime
+      ? `${p.settings.checkoutTime}:00`
+      : (p.checkOutTime || '07:00:00')
+
+    const itemCheckIn = item.checkInDate ? new Date(item.checkInDate) : bookingCheckInDate
+    const itemCheckOut = item.checkOutDate ? new Date(item.checkOutDate) : bookingCheckOutDate
+
+    let roomNights = differenceInCalendarDays(itemCheckOut, itemCheckIn)
+
+    // Only apply late checkout extra charge/waiver if we fall back to booking dates
+    if (!item.checkOutDate) {
+      if (checkOutTimeStr > propCheckOutTime) {
+        roomNights += 1
+      }
+      if (f.waiveLastDayCharge) {
+        roomNights -= 1
+      }
+    }
+
+    return Math.max(1, roomNights)
+  }, [folio, property])
+
   const calculateCurrentTotal = (
     f = folio,
     a = assignments,
@@ -251,23 +279,7 @@ export default function BookingDetailPage() {
     defaultNights = Math.max(1, defaultNights)
 
     const totalRoomCharges = a.reduce((sum, item) => {
-      const itemCheckIn = item.checkInDate ? new Date(item.checkInDate) : bookingCheckInDate
-      const itemCheckOut = item.checkOutDate ? new Date(item.checkOutDate) : bookingCheckOutDate
-      
-      let roomNights = differenceInCalendarDays(itemCheckOut, itemCheckIn)
-      
-      // Only apply late checkout extra charge/waiver if we fall back to booking dates
-      if (!item.checkOutDate) {
-        if (checkOutTimeStr > propCheckOutTime) {
-          roomNights += 1
-        }
-        if (f.waiveLastDayCharge) {
-          roomNights -= 1
-        }
-      }
-      
-      roomNights = Math.max(1, roomNights)
-      
+      const roomNights = getRoomStayNights(item, f, p)
       const price = Number(item.priceOverride) || Number(item.RoomType?.defaultPrice) || 0
       return sum + (price * roomNights)
     }, 0)
@@ -477,7 +489,7 @@ export default function BookingDetailPage() {
         bookingId: folio.id,
         roomId: room.id,
         roomTypeId: room.roomTypeId,
-        status: 'CONFIRMED',
+        status: folio.status,
         checkInDate: checkIn || null,
         checkOutDate: checkOut || null,
       }])
@@ -505,16 +517,16 @@ export default function BookingDetailPage() {
       .eq('id', assignmentId)
 
     if (!error) {
-      const nextAssignments = assignments.map(a => 
-        a.id === assignmentId 
-          ? { 
-              ...a, 
-              roomId: newRoom.id, 
-              roomTypeId: newRoom.roomTypeId, 
-              priceOverride: null,
-              Room: newRoom, 
-              RoomType: newRoom.RoomType 
-            } 
+      const nextAssignments = assignments.map(a =>
+        a.id === assignmentId
+          ? {
+            ...a,
+            roomId: newRoom.id,
+            roomTypeId: newRoom.roomTypeId,
+            priceOverride: null,
+            Room: newRoom,
+            RoomType: newRoom.RoomType
+          }
           : a
       )
       setAssignments(nextAssignments)
@@ -869,34 +881,37 @@ export default function BookingDetailPage() {
                 </div>
 
                 <div className="space-y-3">
-                  {assignments.map((a) => (
-                    <Card key={a.id} className="border-slate-100 shadow-sm rounded-[2rem] overflow-hidden">
-                      <CardContent className="p-6 flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-2xl bg-primary/5 flex items-center justify-center text-primary border border-primary/10">
-                            <BedDouble className="w-6 h-6" />
+                  {assignments.map((a) => {
+                    const roomNights = getRoomStayNights(a)
+                    return (
+                      <Card key={a.id} className="border-slate-100 shadow-sm rounded-[2rem] overflow-hidden">
+                        <CardContent className="p-6 flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-primary/5 flex items-center justify-center text-primary border border-primary/10">
+                              <BedDouble className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <p className="font-black text-slate-900">Room {a.Room?.roomNumber} Stay</p>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                {roomNights} nights x ₹{(Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0).toLocaleString()}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-black text-slate-900">Room {a.Room?.roomNumber} Stay</p>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                              {totalNights} nights x ₹{(Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0).toLocaleString()}
-                            </p>
+                          <div className="flex items-center gap-6">
+                            <PriceOverrideInput
+                              initialValue={Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0}
+                              onSave={(val) => handleUpdateRoomPrice(a.id, val)}
+                            />
+                            <div className="text-right min-w-[100px]">
+                              <p className="font-black text-slate-900 text-lg">
+                                ₹{((Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0) * roomNights).toLocaleString()}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-6">
-                          <PriceOverrideInput
-                            initialValue={Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0}
-                            onSave={(val) => handleUpdateRoomPrice(a.id, val)}
-                          />
-                          <div className="text-right min-w-[100px]">
-                            <p className="font-black text-slate-900 text-lg">
-                              ₹{((Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0) * totalNights).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
 
                   {services.map((s) => (
                     <Card key={s.id} className="border-slate-100 shadow-sm rounded-[2rem] overflow-hidden group">
@@ -1164,7 +1179,7 @@ export default function BookingDetailPage() {
                           <h3 className="text-2xl font-heading font-black tracking-tighter text-slate-900 leading-none">Add Room</h3>
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Add a room with timeline override</p>
                         </div>
-                        
+
                         <div className="space-y-4">
                           <div className="space-y-2">
                             <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select Room</Label>
@@ -1237,7 +1252,7 @@ export default function BookingDetailPage() {
                           <h3 className="text-2xl font-heading font-black tracking-tighter text-slate-900 leading-none">Switch Room</h3>
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Move guest to a different available room</p>
                         </div>
-                        
+
                         {roomToSwitch && (
                           <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
                             <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">Current Assignment</p>
