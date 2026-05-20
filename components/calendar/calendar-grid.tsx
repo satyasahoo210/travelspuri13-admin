@@ -2,6 +2,7 @@
 
 import type { BookingAssignment } from '@/app/calendar/page'
 import { BookingForm } from '@/components/bookings/booking-form'
+import { useProperty } from '@/components/providers/property-provider'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -27,6 +28,7 @@ import {
   isSameDay,
   startOfDay,
 } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { motion } from 'framer-motion'
 import { ArrowRight, Calendar, Home, Phone, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -42,6 +44,8 @@ export function CalendarGrid({
   bookings: assignments,
   startDate = startOfDay(new Date()),
 }: CalendarGridProps) {
+  const { currentProperty } = useProperty()
+
   const [viewDays] = useState(7)
   const [selectedAssignment, setSelectedAssignment] =
     useState<BookingAssignment | null>(null)
@@ -66,6 +70,20 @@ export function CalendarGrid({
       end: addDays(startDate, viewDays - 1),
     })
   }, [startDate, viewDays])
+
+  const defaultCheckInTime = useMemo(() => {
+    const propCheckInTime = currentProperty?.settings?.checkinTime
+      ? `${currentProperty.settings.checkinTime}:00`
+      : (currentProperty?.checkInTime || '07:00:00')
+    return propCheckInTime;
+  }, [currentProperty])
+
+  const defaultCheckOutTime = useMemo(() => {
+    const propCheckOutTime = currentProperty?.settings?.checkoutTime
+      ? `${currentProperty.settings.checkoutTime}:00`
+      : (currentProperty?.checkOutTime || '07:00:00')
+    return propCheckOutTime;
+  }, [currentProperty])
 
   return (
     <>
@@ -150,7 +168,7 @@ export function CalendarGrid({
                           setRangeStart({ roomId: room.id, date: day })
                           setNewBookingData({
                             roomId: room.id,
-                            checkIn: format(day, "yyyy-MM-dd'T'14:00"),
+                            checkIn: formatInTimeZone(day, currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'${defaultCheckInTime}`),
                           })
                         } else {
                           // Second click
@@ -162,11 +180,8 @@ export function CalendarGrid({
                             // Valid range
                             setNewBookingData({
                               roomId: room.id,
-                              checkIn: format(
-                                rangeStart.date,
-                                "yyyy-MM-dd'T'14:00",
-                              ),
-                              checkOut: format(day, "yyyy-MM-dd'T'11:00"),
+                              checkIn: formatInTimeZone(rangeStart.date, currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'${defaultCheckInTime}`),
+                              checkOut: formatInTimeZone(day, currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'${defaultCheckOutTime}`),
                             })
                             setIsCreatingBooking(true)
                             setRangeStart(null)
@@ -175,7 +190,7 @@ export function CalendarGrid({
                             setRangeStart({ roomId: room.id, date: day })
                             setNewBookingData({
                               roomId: room.id,
-                              checkIn: format(day, "yyyy-MM-dd'T'14:00"),
+                              checkIn: formatInTimeZone(day, currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'${defaultCheckInTime}`),
                             })
                           }
                         }
@@ -201,13 +216,13 @@ export function CalendarGrid({
                       const checkIn = startOfDay(
                         new Date(
                           assignment.checkInDate ||
-                            assignment.Booking.checkInDate,
+                          assignment.Booking.checkInDate,
                         ),
                       )
                       const checkOut = startOfDay(
                         new Date(
                           assignment.checkOutDate ||
-                            assignment.Booking.checkOutDate,
+                          assignment.Booking.checkOutDate,
                         ),
                       )
 
@@ -357,12 +372,12 @@ export function CalendarGrid({
                 <p className="text-lg font-black text-slate-900 tracking-tighter">
                   {selectedAssignment
                     ? format(
-                        new Date(
-                          selectedAssignment.checkInDate ||
-                            selectedAssignment.Booking.checkInDate,
-                        ),
-                        'dd MMM yyyy',
-                      )
+                      new Date(
+                        selectedAssignment.checkInDate ||
+                        selectedAssignment.Booking.checkInDate,
+                      ),
+                      'dd MMM yyyy',
+                    )
                     : ''}
                 </p>
               </div>
@@ -376,12 +391,12 @@ export function CalendarGrid({
                 <p className="text-lg font-black text-slate-900 tracking-tighter">
                   {selectedAssignment
                     ? format(
-                        new Date(
-                          selectedAssignment.checkOutDate ||
-                            selectedAssignment.Booking.checkOutDate,
-                        ),
-                        'dd MMM yyyy',
-                      )
+                      new Date(
+                        selectedAssignment.checkOutDate ||
+                        selectedAssignment.Booking.checkOutDate,
+                      ),
+                      'dd MMM yyyy',
+                    )
                     : ''}
                 </p>
               </div>

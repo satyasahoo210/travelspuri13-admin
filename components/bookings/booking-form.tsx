@@ -12,12 +12,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tables } from '@/database.types'
+import { PAYMENT_METHODS } from '@/lib/constants'
 import { createClient } from '@/lib/utils/supabase/client'
 import { differenceInCalendarDays, format } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
-import { Loader2, Search, UserPlus, Calendar, Home, DollarSign, User, ShieldCheck, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, DollarSign, Home, Loader2, Search, ShieldCheck, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { PAYMENT_METHODS } from '@/lib/constants'
 
 type Guest = Pick<Tables<'Guest'>, 'id' | 'name' | 'phone'>
 type Room = Pick<Tables<'Room'>, 'id' | 'roomNumber' | 'roomTypeId'> & {
@@ -35,6 +35,7 @@ export function BookingForm({
     checkOut?: string
   }
 }) {
+  console.log('InitialData:', initialData)
   const supabase = createClient()
   const { user } = useAuth()
   const { currentProperty } = useProperty()
@@ -97,17 +98,17 @@ export function BookingForm({
     if (!formData.checkIn || !formData.checkOut || !currentProperty) return 0
     const start = new Date(formData.checkIn)
     const end = new Date(formData.checkOut)
-    
+
     let nights = differenceInCalendarDays(end, start)
     const checkOutTimeStr = format(end, 'HH:mm:ss')
-    const propCheckOutTime = currentProperty.settings?.checkoutTime 
+    const propCheckOutTime = currentProperty.settings?.checkoutTime
       ? `${currentProperty.settings.checkoutTime}:00`
       : (currentProperty.checkOutTime || '07:00:00')
-      
+
     if (checkOutTimeStr > propCheckOutTime) {
       nights += 1
     }
-    
+
     if (formData.waiveLastDayCharge) {
       nights -= 1
     }
@@ -158,7 +159,7 @@ export function BookingForm({
       return (
         formData.checkIn !== '' &&
         formData.checkOut !== '' &&
-        new Date(formData.checkOut) > new Date(formData.checkIn) &&
+        new Date(formData.checkOut) >= new Date(formData.checkIn) &&
         parseInt(formData.adults) >= 1
       )
     }
@@ -326,19 +327,17 @@ export function BookingForm({
           const isCompleted = step > s
           return (
             <div key={s} className="flex items-center flex-1 last:flex-none">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs transition-all duration-300 ${
-                isCurrent
-                  ? 'bg-slate-900 text-white ring-4 ring-slate-100'
-                  : isCompleted
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs transition-all duration-300 ${isCurrent
+                ? 'bg-slate-900 text-white ring-4 ring-slate-100'
+                : isCompleted
                   ? 'bg-emerald-500 text-white'
                   : 'bg-slate-100 text-slate-400'
-              }`}>
+                }`}>
                 {s}
               </div>
               {s < 6 && (
-                <div className={`h-1 flex-1 mx-2 rounded-full transition-all duration-300 ${
-                  isCompleted ? 'bg-emerald-500' : 'bg-slate-100'
-                }`} />
+                <div className={`h-1 flex-1 mx-2 rounded-full transition-all duration-300 ${isCompleted ? 'bg-emerald-500' : 'bg-slate-100'
+                  }`} />
               )}
             </div>
           )
@@ -347,7 +346,7 @@ export function BookingForm({
 
       {/* Wizard Steps */}
       <div className="bg-white rounded-3xl border border-slate-100 p-6 space-y-6">
-        
+
         {/* Step 1: Dates & Guests */}
         {step === 1 && (
           <div className="space-y-6">
@@ -365,7 +364,7 @@ export function BookingForm({
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-in</Label>
                 <Input
-                  type="date"
+                  type="datetime-local"
                   required
                   className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
                   value={formData.checkIn}
@@ -375,7 +374,7 @@ export function BookingForm({
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-out</Label>
                 <Input
-                  type="date"
+                  type="datetime-local"
                   required
                   className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
                   value={formData.checkOut}
@@ -410,8 +409,8 @@ export function BookingForm({
             </div>
 
             <div className="flex items-center space-x-2 py-2">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 id="waiveLastDayCharge"
                 checked={formData.waiveLastDayCharge}
                 onChange={(e) => setFormData({ ...formData, waiveLastDayCharge: e.target.checked })}
@@ -455,19 +454,17 @@ export function BookingForm({
                                 setSelectedRooms([...selectedRooms, room.id])
                               }
                             }}
-                            className={`p-4 rounded-2xl border-2 transition-all duration-300 cursor-pointer flex justify-between items-center ${
-                              isSelected
-                                ? 'border-slate-900 bg-slate-50'
-                                : 'border-slate-100 hover:border-slate-200 bg-white'
-                            }`}
+                            className={`p-4 rounded-2xl border-2 transition-all duration-300 cursor-pointer flex justify-between items-center ${isSelected
+                              ? 'border-slate-900 bg-slate-50'
+                              : 'border-slate-100 hover:border-slate-200 bg-white'
+                              }`}
                           >
                             <div>
                               <p className="text-lg font-black text-slate-900">Room {room.roomNumber}</p>
                               <p className="text-[10px] font-bold text-slate-400">₹{room.RoomType?.defaultPrice}/night</p>
                             </div>
-                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                              isSelected ? 'bg-slate-900 border-slate-900' : 'border-slate-300'
-                            }`}>
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'bg-slate-900 border-slate-900' : 'border-slate-300'
+                              }`}>
                               {isSelected && <span className="w-2 h-2 rounded-full bg-white" />}
                             </div>
                           </div>
