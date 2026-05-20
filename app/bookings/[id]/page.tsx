@@ -130,10 +130,13 @@ export default function BookingDetailPage() {
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
   const [isAddRoomDialogOpen, setIsAddRoomDialogOpen] = useState(false)
   const [isSwitchRoomDialogOpen, setIsSwitchRoomDialogOpen] = useState(false)
+  const [isExtendDialogOpen, setIsExtendDialogOpen] = useState(false)
+  const [extendDays, setExtendDays] = useState(1)
   const [roomToSwitch, setRoomToSwitch] = useState<BookingRoom | null>(null)
   const [selectedRoomId, setSelectedRoomId] = useState('')
   const [roomCheckInDate, setRoomCheckInDate] = useState('')
   const [roomCheckOutDate, setRoomCheckOutDate] = useState('')
+  const [switchDate, setSwitchDate] = useState('')
 
   const fetchFolioData = useCallback(async () => {
     if (!id) return
@@ -322,6 +325,37 @@ export default function BookingDetailPage() {
     }
   }
 
+  const getExtendedCheckOutDateStr = () => {
+    if (!folio) return ''
+    const origCheckOut = new Date(folio.checkOutDate)
+    const newCheckOut = new Date(origCheckOut)
+    newCheckOut.setDate(newCheckOut.getDate() + (extendDays || 0))
+    return format(newCheckOut, 'dd MMM yyyy')
+  }
+
+  const getExtendedEstimatedTotal = () => {
+    if (!folio) return 0
+    const origCheckOut = new Date(folio.checkOutDate)
+    const newCheckOut = new Date(origCheckOut)
+    newCheckOut.setDate(newCheckOut.getDate() + (extendDays || 0))
+    const newCheckOutStr = newCheckOut.toISOString()
+    const origCheckOutDateStr = format(origCheckOut, 'yyyy-MM-dd')
+    const newCheckOutDateStr = format(newCheckOut, 'yyyy-MM-dd')
+
+    const nextAssignments = assignments.map((a) => {
+      if (!a.checkOutDate) return a
+      const aCheckOutVal = format(new Date(a.checkOutDate), 'yyyy-MM-dd')
+      if (aCheckOutVal === origCheckOutDateStr) {
+        return { ...a, checkOutDate: newCheckOutDateStr }
+      }
+      return a
+    })
+
+    const updatedFolio = { ...folio, checkOutDate: newCheckOutStr }
+    const { total } = calculateCurrentTotal(updatedFolio, nextAssignments, services)
+    return total
+  }
+
   const {
     total,
     nights: totalNights,
@@ -479,6 +513,72 @@ export default function BookingDetailPage() {
     }
   }
 
+  const handleExtendBooking = async (days: number) => {
+    if (!folio || days <= 0) return
+
+    const origCheckOut = new Date(folio.checkOutDate)
+    const newCheckOut = new Date(origCheckOut)
+    newCheckOut.setDate(newCheckOut.getDate() + days)
+    const newCheckOutStr = newCheckOut.toISOString()
+    const origCheckOutDateStr = format(origCheckOut, 'yyyy-MM-dd')
+    const newCheckOutDateStr = format(newCheckOut, 'yyyy-MM-dd')
+
+    // Find assignments that end on the original checkOutDate
+    const assignmentsToUpdate = assignments.filter((a) => {
+      if (!a.checkOutDate) return true // implicitly ends on checkout date
+      const aCheckOutVal = format(new Date(a.checkOutDate), 'yyyy-MM-dd')
+      return aCheckOutVal === origCheckOutDateStr
+    })
+
+    // Update non-null checkout dates in DB
+    for (const a of assignmentsToUpdate) {
+      if (a.checkOutDate) {
+        const { error: updateRoomError } = await supabase
+          .from('BookingRoom')
+          .update({
+            checkOutDate: newCheckOutDateStr,
+          })
+          .eq('id', a.id)
+        if (updateRoomError) {
+          console.error("Error updating assignment checkout date:", updateRoomError)
+          alert("Failed to update some room assignments.")
+          return
+        }
+      }
+    }
+
+    // Update assignments in local state
+    const nextAssignments = assignments.map((a) => {
+      if (!a.checkOutDate) return a
+      const aCheckOutVal = format(new Date(a.checkOutDate), 'yyyy-MM-dd')
+      if (aCheckOutVal === origCheckOutDateStr) {
+        return { ...a, checkOutDate: newCheckOutDateStr }
+      }
+      return a
+    })
+
+    // Update booking in DB and sync booking total
+    const updatedFolio = { ...folio, checkOutDate: newCheckOutStr }
+    const { total: newTotal } = calculateCurrentTotal(updatedFolio, nextAssignments, services)
+
+    const { error: updateBookingError } = await supabase
+      .from('Booking')
+      .update({
+        checkOutDate: newCheckOutStr,
+        totalAmount: newTotal,
+      } as any)
+      .eq('id', folio.id)
+
+    if (updateBookingError) {
+      console.error("Error updating booking checkout date:", updateBookingError)
+      alert("Failed to extend booking check-out date.")
+      return
+    }
+
+    setFolio({ ...updatedFolio, totalAmount: newTotal })
+    setAssignments(nextAssignments)
+  }
+
   const handleAddRoom = async (roomId: string, checkIn?: string, checkOut?: string) => {
     const room = availableRooms.find((r) => r.id === roomId)
     if (!room || !folio) return
@@ -503,35 +603,156 @@ export default function BookingDetailPage() {
     }
   }
 
-  const handleSwitchRoom = async (assignmentId: string, newRoomId: string) => {
+  const handleSwitchRoom = async (assignmentId: string, newRoomId: string, switchDateStr: string) => {
     const newRoom = availableRooms.find((r) => r.id === newRoomId)
-    if (!newRoom || !folio) return
+    const activeAssignment = assignments.find((a) => a.id === assignmentId)
+    if (!newRoom || !activeAssignment || !folio || !switchDateStr) return
 
-    const { error } = await supabase
-      .from('BookingRoom')
-      .update({
-        roomId: newRoom.id,
-        roomTypeId: newRoom.roomTypeId,
-        priceOverride: null, // Reset price override on switch to use new room type default
-      })
-      .eq('id', assignmentId)
+    const bookingCheckInVal = format(new Date(folio.checkInDate), 'yyyy-MM-dd')
+    const bookingCheckOutVal = format(new Date(folio.checkOutDate), 'yyyy-MM-dd')
 
-    if (!error) {
+    const assignCheckInVal = activeAssignment.checkInDate
+      ? format(new Date(activeAssignment.checkInDate), 'yyyy-MM-dd')
+      : bookingCheckInVal
+
+    const assignCheckOutVal = activeAssignment.checkOutDate
+      ? format(new Date(activeAssignment.checkOutDate), 'yyyy-MM-dd')
+      : bookingCheckOutVal
+
+    if (switchDateStr < assignCheckInVal || switchDateStr > assignCheckOutVal) {
+      alert("Switch date must be within the room's stay period.")
+      return
+    }
+
+    if (switchDateStr === assignCheckInVal) {
+      // If switch date is the check-in date itself, update in-place
+      const { error } = await supabase
+        .from('BookingRoom')
+        .update({
+          roomId: newRoom.id,
+          roomTypeId: newRoom.roomTypeId,
+          priceOverride: null, // Reset price override on switch to use new room type default
+        })
+        .eq('id', assignmentId)
+
+      if (!error) {
+        const nextAssignments = assignments.map(a =>
+          a.id === assignmentId
+            ? {
+              ...a,
+              roomId: newRoom.id,
+              roomTypeId: newRoom.roomTypeId,
+              priceOverride: null,
+              Room: newRoom,
+              RoomType: newRoom.RoomType
+            }
+            : a
+        )
+        setAssignments(nextAssignments)
+        await syncBookingTotal(nextAssignments)
+      }
+    } else {
+      // Split the assignment
+      // 1. Update the old assignment's checkOutDate to the switchDate
+      const { error: updateError } = await supabase
+        .from('BookingRoom')
+        .update({
+          checkOutDate: switchDateStr,
+        })
+        .eq('id', assignmentId)
+
+      if (updateError) {
+        console.error("Error updating old room checkout date:", updateError)
+        return
+      }
+
+      // 2. Insert new assignment starting at switchDate
+      const { data: newAssignment, error: insertError } = await supabase
+        .from('BookingRoom')
+        .insert([{
+          bookingId: folio.id,
+          roomId: newRoom.id,
+          roomTypeId: newRoom.roomTypeId,
+          status: folio.status,
+          checkInDate: switchDateStr,
+          checkOutDate: activeAssignment.checkOutDate || null,
+          priceOverride: null,
+        }])
+        .select('*, Room(*), RoomType(*)')
+        .single()
+
+      if (insertError) {
+        console.error("Error inserting new room stay:", insertError)
+        return
+      }
+
+      // 3. Update local state and trigger sync
       const nextAssignments = assignments.map(a =>
         a.id === assignmentId
-          ? {
-            ...a,
-            roomId: newRoom.id,
-            roomTypeId: newRoom.roomTypeId,
-            priceOverride: null,
-            Room: newRoom,
-            RoomType: newRoom.RoomType
-          }
+          ? { ...a, checkOutDate: switchDateStr }
           : a
       )
-      setAssignments(nextAssignments)
-      await syncBookingTotal(nextAssignments)
+      const updatedAssignments = [...nextAssignments, newAssignment]
+      setAssignments(updatedAssignments)
+      await syncBookingTotal(updatedAssignments)
     }
+  }
+
+  const handleRollbackSwitch = async (assignmentId: string) => {
+    const currAssignment = assignments.find((a) => a.id === assignmentId)
+    if (!currAssignment || !folio) return
+
+    const prevAssignment = assignments.find((a) => {
+      if (a.id === currAssignment.id) return false
+      if (!a.checkOutDate || !currAssignment.checkInDate) return false
+
+      const prevCheckOutVal = format(new Date(a.checkOutDate), 'yyyy-MM-dd')
+      const currCheckInVal = format(new Date(currAssignment.checkInDate), 'yyyy-MM-dd')
+      return prevCheckOutVal === currCheckInVal
+    })
+
+    if (!prevAssignment) {
+      alert("No matching previous room assignment found to roll back this switch.")
+      return
+    }
+
+    if (!confirm(`Are you sure you want to rollback the switch to Room ${currAssignment.Room?.roomNumber} and revert the guest back to Room ${prevAssignment.Room?.roomNumber}?`)) {
+      return
+    }
+
+    // 3. Update the previous assignment's checkOutDate to the current assignment's checkOutDate
+    const { error: updateError } = await supabase
+      .from('BookingRoom')
+      .update({
+        checkOutDate: currAssignment.checkOutDate,
+      })
+      .eq('id', prevAssignment.id)
+
+    if (updateError) {
+      console.error("Error updating previous room checkout date:", updateError)
+      alert("Failed to update previous room reservation.")
+      return
+    }
+
+    // 4. Delete the current assignment
+    const { error: deleteError } = await supabase
+      .from('BookingRoom')
+      .delete()
+      .eq('id', currAssignment.id)
+
+    if (deleteError) {
+      console.error("Error deleting switched room assignment:", deleteError)
+      alert("Failed to delete the switched room assignment.")
+      return
+    }
+
+    // 5. Update local state and sync
+    const nextAssignments = assignments
+      .map(a => a.id === prevAssignment.id ? { ...a, checkOutDate: currAssignment.checkOutDate } : a)
+      .filter(a => a.id !== currAssignment.id)
+
+    setAssignments(nextAssignments)
+    await syncBookingTotal(nextAssignments)
   }
 
   const handleRemoveRoom = async (assignmentId: string) => {
@@ -742,6 +963,18 @@ export default function BookingDetailPage() {
                 <CreditCard className="w-4 h-4 text-emerald-500" />
                 Record Payment
               </DropdownMenuItem>
+              {(folio?.status === 'CONFIRMED' || folio?.status === 'CHECKED_IN') && (
+                <DropdownMenuItem
+                  className="rounded-xl h-12 font-black uppercase text-[10px] tracking-widest gap-3"
+                  onClick={() => {
+                    setExtendDays(1)
+                    setIsExtendDialogOpen(true)
+                  }}
+                >
+                  <Calendar className="w-4 h-4 text-indigo-500" />
+                  Extend Booking
+                </DropdownMenuItem>
+              )}
               {/* <DropdownMenuItem 
                 className="rounded-xl h-12 font-black uppercase text-[10px] tracking-widest gap-3"
                 onClick={() => router.push(`/bookings/new?clone=${folio.id}`)}
@@ -894,6 +1127,7 @@ export default function BookingDetailPage() {
                               <p className="font-black text-slate-900">Room {a.Room?.roomNumber} Stay</p>
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                 {roomNights} nights x ₹{(Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0).toLocaleString()}
+                                {` (${format(new Date(a.checkInDate || folio?.checkInDate || ''), 'dd MMM')} - ${format(new Date(a.checkOutDate || folio?.checkOutDate || ''), 'dd MMM')})`}
                               </p>
                             </div>
                           </div>
@@ -1133,175 +1367,69 @@ export default function BookingDetailPage() {
                   </div>
 
                   <div className="space-y-3">
-                    {assignments.map((a) => (
-                      <div key={a.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-black text-primary">
-                            {a.Room?.roomNumber}
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="font-black text-slate-700">{a.RoomType?.name}</span>
-                            {a.checkInDate && (
+                    {assignments.map((a) => {
+                      const prevSwitch = assignments.find((prev) => {
+                        if (prev.id === a.id) return false
+                        if (!prev.checkOutDate || !a.checkInDate) return false
+                        const prevCheckOutVal = format(new Date(prev.checkOutDate), 'yyyy-MM-dd')
+                        const aCheckInVal = format(new Date(a.checkInDate), 'yyyy-MM-dd')
+                        return prevCheckOutVal === aCheckInVal
+                      })
+
+                      return (
+                        <div key={a.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-black text-primary">
+                              {a.Room?.roomNumber}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="font-black text-slate-700">{a.RoomType?.name}</span>
                               <span className="text-[10px] font-bold text-slate-400">
-                                Timeline: {format(new Date(a.checkInDate), 'dd MMM')} - {a.checkOutDate ? format(new Date(a.checkOutDate), 'dd MMM') : 'Checkout'}
+                                Timeline: {format(new Date(a.checkInDate || folio?.checkInDate || ''), 'dd MMM yyyy')} - {format(new Date(a.checkOutDate || folio?.checkOutDate || ''), 'dd MMM yyyy')}
                               </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {prevSwitch && (folio?.status === 'CONFIRMED' || folio?.status === 'CHECKED_IN') && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="rounded-xl font-black uppercase text-[10px] tracking-widest text-amber-600 hover:bg-amber-50"
+                                onClick={() => handleRollbackSwitch(a.id)}
+                              >
+                                Rollback Switch
+                              </Button>
                             )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {(folio?.status === 'CONFIRMED' || folio?.status === 'CHECKED_IN') && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="rounded-xl font-black uppercase text-[10px] tracking-widest text-indigo-600 hover:bg-indigo-50"
-                              onClick={() => {
-                                setRoomToSwitch(a)
-                                setSelectedRoomId('')
-                                setIsSwitchRoomDialogOpen(true)
-                              }}
-                            >
-                              Switch Room
+                            {(folio?.status === 'CONFIRMED' || folio?.status === 'CHECKED_IN') && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="rounded-xl font-black uppercase text-[10px] tracking-widest text-indigo-600 hover:bg-indigo-50"
+                                onClick={() => {
+                                  setRoomToSwitch(a)
+                                  setSelectedRoomId('')
+                                  const todayStr = format(new Date(), 'yyyy-MM-dd')
+                                  const checkInVal = a.checkInDate ? format(new Date(a.checkInDate), 'yyyy-MM-dd') : (folio ? format(new Date(folio.checkInDate), 'yyyy-MM-dd') : todayStr)
+                                  const checkOutVal = a.checkOutDate ? format(new Date(a.checkOutDate), 'yyyy-MM-dd') : (folio ? format(new Date(folio.checkOutDate), 'yyyy-MM-dd') : todayStr)
+                                  if (todayStr >= checkInVal && todayStr <= checkOutVal) {
+                                    setSwitchDate(todayStr)
+                                  } else {
+                                    setSwitchDate(checkInVal)
+                                  }
+                                  setIsSwitchRoomDialogOpen(true)
+                                }}
+                              >
+                                Switch Room
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="icon" className="text-rose-500 hover:bg-rose-50" onClick={() => handleRemoveRoom(a.id)}>
+                              <Trash2 className="h-4 w-4" />
                             </Button>
-                          )}
-                          <Button variant="ghost" size="icon" className="text-rose-500 hover:bg-rose-50" onClick={() => handleRemoveRoom(a.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
-
-                  {/* Add Room Dialog */}
-                  <Dialog open={isAddRoomDialogOpen} onOpenChange={setIsAddRoomDialogOpen}>
-                    <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-none shadow-3xl">
-                      <div className="p-8 space-y-6 bg-white rounded-[3rem]">
-                        <div>
-                          <h3 className="text-2xl font-heading font-black tracking-tighter text-slate-900 leading-none">Add Room</h3>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Add a room with timeline override</p>
-                        </div>
-
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select Room</Label>
-                            <Select value={selectedRoomId} onValueChange={(val) => setSelectedRoomId(val || '')}>
-                              <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
-                                <SelectValue placeholder="Select a room" />
-                              </SelectTrigger>
-                              <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
-                                {availableRooms
-                                  .filter((r) => r.status === 'AVAILABLE' && !assignments.some((a) => a.roomId === r.id))
-                                  .map((r) => (
-                                    <SelectItem key={r.id} value={r.id} className="rounded-xl font-bold">
-                                      Room {r.roomNumber} ({r.RoomType?.name} - ₹{r.RoomType?.defaultPrice}/night)
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-In Date</Label>
-                            <Input
-                              type="date"
-                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
-                              value={roomCheckInDate}
-                              onChange={(e) => setRoomCheckInDate(e.target.value)}
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-Out Date (Optional)</Label>
-                            <Input
-                              type="date"
-                              className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
-                              value={roomCheckOutDate}
-                              onChange={(e) => setRoomCheckOutDate(e.target.value)}
-                              placeholder="Keep empty to match overall booking"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="flex gap-3 justify-end pt-2">
-                          <Button
-                            variant="outline"
-                            className="rounded-2xl h-12 px-6 border-slate-200 font-black uppercase text-[10px] tracking-widest"
-                            onClick={() => setIsAddRoomDialogOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            className="rounded-2xl h-12 px-6 bg-slate-900 hover:bg-slate-800 font-black uppercase text-[10px] tracking-widest"
-                            disabled={!selectedRoomId || !roomCheckInDate}
-                            onClick={async () => {
-                              await handleAddRoom(selectedRoomId, roomCheckInDate, roomCheckOutDate || undefined)
-                              setIsAddRoomDialogOpen(false)
-                            }}
-                          >
-                            Confirm Add
-                          </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  {/* Switch Room Dialog */}
-                  <Dialog open={isSwitchRoomDialogOpen} onOpenChange={setIsSwitchRoomDialogOpen}>
-                    <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-none shadow-3xl">
-                      <div className="p-8 space-y-6 bg-white rounded-[3rem]">
-                        <div>
-                          <h3 className="text-2xl font-heading font-black tracking-tighter text-slate-900 leading-none">Switch Room</h3>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Move guest to a different available room</p>
-                        </div>
-
-                        {roomToSwitch && (
-                          <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
-                            <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">Current Assignment</p>
-                            <p className="font-black text-slate-900 text-sm">Room {roomToSwitch.Room?.roomNumber} ({roomToSwitch.RoomType?.name})</p>
-                          </div>
-                        )}
-
-                        <div className="space-y-2">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select New Room</Label>
-                          <Select value={selectedRoomId} onValueChange={(val) => setSelectedRoomId(val || '')}>
-                            <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
-                              <SelectValue placeholder="Select new room" />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
-                              {availableRooms
-                                .filter((r) => r.status === 'AVAILABLE' && !assignments.some((a) => a.roomId === r.id))
-                                .map((r) => (
-                                  <SelectItem key={r.id} value={r.id} className="rounded-xl font-bold">
-                                    Room {r.roomNumber} ({r.RoomType?.name} - ₹{r.RoomType?.defaultPrice}/night)
-                                  </SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="flex gap-3 justify-end pt-2">
-                          <Button
-                            variant="outline"
-                            className="rounded-2xl h-12 px-6 border-slate-200 font-black uppercase text-[10px] tracking-widest"
-                            onClick={() => setIsSwitchRoomDialogOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            className="rounded-2xl h-12 px-6 bg-indigo-600 hover:bg-indigo-700 font-black uppercase text-[10px] tracking-widest text-white shadow-lg shadow-indigo-500/20"
-                            disabled={!selectedRoomId || !roomToSwitch}
-                            onClick={async () => {
-                              if (roomToSwitch) {
-                                await handleSwitchRoom(roomToSwitch.id, selectedRoomId)
-                              }
-                              setIsSwitchRoomDialogOpen(false)
-                            }}
-                          >
-                            Confirm Switch
-                          </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -1430,6 +1558,230 @@ export default function BookingDetailPage() {
               {loading ? 'PROCESSING...' : 'CONFIRM TRANSACTION'}
             </Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Room Dialog */}
+      <Dialog open={isAddRoomDialogOpen} onOpenChange={setIsAddRoomDialogOpen}>
+        <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-none shadow-3xl">
+          <div className="p-8 space-y-6 bg-white rounded-[3rem]">
+            <div>
+              <h3 className="text-2xl font-heading font-black tracking-tighter text-slate-900 leading-none">Add Room</h3>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Add a room with timeline override</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select Room</Label>
+                <Select value={selectedRoomId} onValueChange={(val) => setSelectedRoomId(val || '')}>
+                  <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
+                    <SelectValue placeholder="Select a room" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
+                    {availableRooms
+                      .filter((r) => r.status === 'AVAILABLE' && !assignments.some((a) => a.roomId === r.id))
+                      .map((r) => (
+                        <SelectItem key={r.id} value={r.id} className="rounded-xl font-bold">
+                          Room {r.roomNumber} ({r.RoomType?.name} - ₹{r.RoomType?.defaultPrice}/night)
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-In Date</Label>
+                <Input
+                  type="date"
+                  className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                  value={roomCheckInDate}
+                  onChange={(e) => setRoomCheckInDate(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-Out Date (Optional)</Label>
+                <Input
+                  type="date"
+                  className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                  value={roomCheckOutDate}
+                  onChange={(e) => setRoomCheckOutDate(e.target.value)}
+                  placeholder="Keep empty to match overall booking"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end pt-2">
+              <Button
+                variant="outline"
+                className="rounded-2xl h-12 px-6 border-slate-200 font-black uppercase text-[10px] tracking-widest"
+                onClick={() => setIsAddRoomDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="rounded-2xl h-12 px-6 bg-slate-900 hover:bg-slate-800 font-black uppercase text-[10px] tracking-widest"
+                disabled={!selectedRoomId || !roomCheckInDate}
+                onClick={async () => {
+                  await handleAddRoom(selectedRoomId, roomCheckInDate, roomCheckOutDate || undefined)
+                  setIsAddRoomDialogOpen(false)
+                }}
+              >
+                Confirm Add
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Switch Room Dialog */}
+      <Dialog open={isSwitchRoomDialogOpen} onOpenChange={setIsSwitchRoomDialogOpen}>
+        <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-none shadow-3xl">
+          <div className="p-8 space-y-6 bg-white rounded-[3rem]">
+            <div>
+              <h3 className="text-2xl font-heading font-black tracking-tighter text-slate-900 leading-none">Switch Room</h3>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Move guest to a different available room</p>
+            </div>
+
+            {roomToSwitch && (
+              <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
+                <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">Current Assignment</p>
+                <p className="font-black text-slate-900 text-sm">Room {roomToSwitch.Room?.roomNumber} ({roomToSwitch.RoomType?.name})</p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select New Room</Label>
+              <Select value={selectedRoomId} onValueChange={(val) => setSelectedRoomId(val || '')}>
+                <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
+                  <SelectValue placeholder="Select new room" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
+                  {availableRooms
+                    .filter((r) => r.status === 'AVAILABLE' && !assignments.some((a) => a.roomId === r.id))
+                    .map((r) => (
+                      <SelectItem key={r.id} value={r.id} className="rounded-xl font-bold">
+                        Room {r.roomNumber} ({r.RoomType?.name} - ₹{r.RoomType?.defaultPrice}/night)
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Switch Date</Label>
+              <Input
+                type="date"
+                className="h-14 rounded-2xl font-bold bg-slate-50 border-slate-100"
+                value={switchDate}
+                onChange={(e) => setSwitchDate(e.target.value)}
+                min={roomToSwitch && folio ? (roomToSwitch.checkInDate ? format(new Date(roomToSwitch.checkInDate), 'yyyy-MM-dd') : format(new Date(folio.checkInDate), 'yyyy-MM-dd')) : undefined}
+                max={roomToSwitch && folio ? (roomToSwitch.checkOutDate ? format(new Date(roomToSwitch.checkOutDate), 'yyyy-MM-dd') : format(new Date(folio.checkOutDate), 'yyyy-MM-dd')) : undefined}
+              />
+            </div>
+
+            <div className="flex gap-3 justify-end pt-2">
+              <Button
+                variant="outline"
+                className="rounded-2xl h-12 px-6 border-slate-200 font-black uppercase text-[10px] tracking-widest"
+                onClick={() => setIsSwitchRoomDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="rounded-2xl h-12 px-6 bg-indigo-600 hover:bg-indigo-700 font-black uppercase text-[10px] tracking-widest text-white shadow-lg shadow-indigo-500/20"
+                disabled={!selectedRoomId || !roomToSwitch || !switchDate}
+                onClick={async () => {
+                  if (roomToSwitch) {
+                    await handleSwitchRoom(roomToSwitch.id, selectedRoomId, switchDate)
+                  }
+                  setIsSwitchRoomDialogOpen(false)
+                }}
+              >
+                Confirm Switch
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Extend Booking Dialog */}
+      <Dialog open={isExtendDialogOpen} onOpenChange={setIsExtendDialogOpen}>
+        <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-none shadow-3xl">
+          <div className="p-8 space-y-6 bg-white rounded-[3rem]">
+            <div>
+              <h3 className="text-2xl font-heading font-black tracking-tighter text-slate-900 leading-none">Extend Booking</h3>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Extend the reservation check-out date</p>
+            </div>
+
+            {folio && (
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col gap-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-slate-400 uppercase tracking-wider text-[9px]">Current Check-out</span>
+                  <span className="font-black text-slate-700">{format(new Date(folio.checkOutDate), 'dd MMM yyyy')}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-bold text-slate-400 uppercase tracking-wider text-[9px]">New Check-out</span>
+                  <span className="font-black text-indigo-600">{getExtendedCheckOutDateStr()}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Number of Days to Extend</Label>
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="outline"
+                  type="button"
+                  className="w-12 h-12 rounded-xl font-black text-lg border-slate-200"
+                  onClick={() => setExtendDays(Math.max(1, extendDays - 1))}
+                >
+                  -
+                </Button>
+                <Input
+                  type="number"
+                  min="1"
+                  className="h-12 text-center rounded-xl font-black text-lg bg-slate-50 border-slate-100 flex-1"
+                  value={extendDays}
+                  onChange={(e) => setExtendDays(Math.max(1, parseInt(e.target.value) || 1))}
+                />
+                <Button
+                  variant="outline"
+                  type="button"
+                  className="w-12 h-12 rounded-xl font-black text-lg border-slate-200"
+                  onClick={() => setExtendDays(extendDays + 1)}
+                >
+                  +
+                </Button>
+              </div>
+            </div>
+
+            {folio && (
+              <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50 flex justify-between items-center">
+                <span className="font-black text-slate-700 text-xs uppercase tracking-wider text-[9px]">Estimated New Total</span>
+                <span className="font-black text-indigo-600 text-lg">₹{getExtendedEstimatedTotal().toLocaleString('en-IN')}</span>
+              </div>
+            )}
+
+            <div className="flex gap-3 justify-end pt-2">
+              <Button
+                variant="outline"
+                className="rounded-2xl h-12 px-6 border-slate-200 font-black uppercase text-[10px] tracking-widest"
+                onClick={() => setIsExtendDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="rounded-2xl h-12 px-6 bg-indigo-600 hover:bg-indigo-700 font-black uppercase text-[10px] tracking-widest text-white shadow-lg shadow-indigo-500/20"
+                onClick={async () => {
+                  await handleExtendBooking(extendDays)
+                  setIsExtendDialogOpen(false)
+                }}
+              >
+                Confirm Extension
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

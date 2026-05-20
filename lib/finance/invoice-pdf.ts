@@ -395,29 +395,19 @@ export const generateInvoicePDF = async (
     currentY += 7
     const chargesData: Array<string[]> = []
   
-    // Group assignments by number of nights
-    const assignmentsByNights = new Map<number, BookingRoom[]>()
     assignments.forEach((a) => {
       const roomNights = getRoomStayNights(a, folio, property)
-      if (!assignmentsByNights.has(roomNights)) {
-        assignmentsByNights.set(roomNights, [])
-      }
-      assignmentsByNights.get(roomNights)!.push(a)
-    })
+      const itemCheckIn = a.checkInDate ? new Date(a.checkInDate) : new Date(folio.checkInDate)
+      const itemCheckOut = a.checkOutDate ? new Date(a.checkOutDate) : new Date(folio.checkOutDate)
+      const datesStr = `${format(itemCheckIn, 'dd MMM yyyy')} - ${format(itemCheckOut, 'dd MMM yyyy')}`
+      const roomNum = a.Room?.roomNumber || 'N/A'
+      const roomType = a.RoomType?.name || 'Standard'
+      const rate = Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0
+      const total = rate * roomNights
 
-    // Add a chargesData row for each group
-    const sortedNights = Array.from(assignmentsByNights.keys()).sort((x, y) => y - x)
-    
-    sortedNights.forEach((nights) => {
-      const groupAssignments = assignmentsByNights.get(nights)!
-      const groupCharges = groupAssignments.reduce((sum, item) => {
-        const price = Number(item.priceOverride) || Number(item.RoomType?.defaultPrice) || 0
-        return sum + (price * nights)
-      }, 0)
-      
       chargesData.push([
-        `Accommodation (${nights} Night(s) x ${groupAssignments.length} Room(s))`,
-        `INR ${groupCharges.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+        `Accommodation: Room ${roomNum} (${roomType}) - ${roomNights} Night(s) [${datesStr}] @ INR ${rate.toLocaleString(undefined, { minimumFractionDigits: 2 })}/night`,
+        `INR ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
       ])
     })
   
