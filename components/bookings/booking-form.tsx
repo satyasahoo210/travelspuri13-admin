@@ -35,7 +35,6 @@ export function BookingForm({
     checkOut?: string
   }
 }) {
-  console.log('InitialData:', initialData)
   const supabase = createClient()
   const { user } = useAuth()
   const { currentProperty } = useProperty()
@@ -71,6 +70,18 @@ export function BookingForm({
   )
   const [roomRates, setRoomRates] = useState<Record<string, string>>({})
   const [advanceAmount, setAdvanceAmount] = useState('0')
+
+  const getSafeRate = (roomId: string): string | undefined => {
+    if (!roomId || typeof roomId !== 'string') return undefined
+    if (roomId === '__proto__' || roomId === 'constructor' || roomId === 'prototype') {
+      return undefined
+    }
+    if (Object.prototype.hasOwnProperty.call(roomRates, roomId)) {
+      const val = Reflect.get(roomRates, roomId)
+      return typeof val === 'string' ? val : undefined
+    }
+    return undefined
+  }
   const [advanceMethod, setAdvanceMethod] = useState('CASH')
 
   useEffect(() => {
@@ -124,8 +135,9 @@ export function BookingForm({
     selectedRooms.forEach((roomId) => {
       const room = rooms.find((r) => r.id === roomId)
       if (room) {
-        const rate = roomRates[roomId]
-          ? parseFloat(roomRates[roomId])
+        const customRate = getSafeRate(roomId)
+        const rate = customRate
+          ? parseFloat(customRate)
           : (Number(room.RoomType?.defaultPrice) || 0)
         subtotal += rate * nights
       }
@@ -177,21 +189,12 @@ export function BookingForm({
 
   const handleNext = () => {
     if (isStepValid()) {
-      // Step 3 is optional override rate (only if multiple rooms selected)
-      if (step === 2 && selectedRooms.length <= 1) {
-        setStep(4) // Skip step 3
-      } else {
-        setStep(step + 1)
-      }
+      setStep(step + 1)
     }
   }
 
   const handlePrev = () => {
-    if (step === 4 && selectedRooms.length <= 1) {
-      setStep(2) // Skip step 3
-    } else {
-      setStep(step - 1)
-    }
+    setStep(step - 1)
   }
 
   const handleSubmit = async () => {
@@ -278,7 +281,8 @@ export function BookingForm({
       for (const roomId of selectedRooms) {
         const selectedRoom = rooms.find((r) => r.id === roomId)
         if (selectedRoom) {
-          const overrideRate = roomRates[roomId] ? parseFloat(roomRates[roomId]) : null
+          const customRate = getSafeRate(roomId)
+          const overrideRate = customRate ? parseFloat(customRate) : null
           const { error: brError } = await supabase.from('BookingRoom').insert([
             {
               bookingId: booking.id,
@@ -511,7 +515,7 @@ export function BookingForm({
                         type="number"
                         placeholder="Leave empty for default"
                         className="h-12 rounded-xl bg-white"
-                        value={roomRates[roomId] || ''}
+                        value={getSafeRate(roomId) || ''}
                         onChange={(e) => setRoomRates({ ...roomRates, [roomId]: e.target.value })}
                       />
                     </div>
@@ -730,7 +734,8 @@ export function BookingForm({
                 {selectedRooms.map((roomId) => {
                   const room = rooms.find((r) => r.id === roomId)
                   if (!room) return null
-                  const rate = roomRates[roomId] ? parseFloat(roomRates[roomId]) : (Number(room.RoomType?.defaultPrice) || 0)
+                  const customRate = getSafeRate(roomId)
+                  const rate = customRate ? parseFloat(customRate) : (Number(room.RoomType?.defaultPrice) || 0)
                   return (
                     <div key={roomId} className="flex justify-between items-center">
                       <span className="text-xs font-bold text-slate-700">Room {room.roomNumber} ({room.RoomType?.name})</span>
