@@ -51,6 +51,7 @@ import { differenceInCalendarDays, format, isBefore } from 'date-fns'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   BedDouble,
   Calendar,
@@ -61,6 +62,7 @@ import {
   LogIn,
   LogOut,
   MoreHorizontal,
+  Pencil,
   Plus,
   Printer,
   Receipt,
@@ -138,6 +140,11 @@ export default function BookingDetailPage() {
   const [roomCheckOutDate, setRoomCheckOutDate] = useState('')
   const [switchDate, setSwitchDate] = useState('')
 
+  const [isDiscountDialogOpen, setIsDiscountDialogOpen] = useState(false)
+  const [discountAmountInput, setDiscountAmountInput] = useState('0')
+  const [discountTypeInput, setDiscountTypeInput] = useState<'FIXED' | 'PERCENTAGE'>('FIXED')
+  const [activeBookings, setActiveBookings] = useState<any[]>([])
+
   const fetchFolioData = useCallback(async () => {
     if (!id) return
     setLoading(true)
@@ -175,7 +182,7 @@ export default function BookingDetailPage() {
         setGrNumber((folioRes.data.Guest as any)?.grNumber || '')
 
         // Fetch property & related data once we have propertyId
-        const [allServicesRes, allRoomsRes, propRes] = await Promise.all([
+        const [allServicesRes, allRoomsRes, propRes, activeBookingsRes] = await Promise.all([
           supabase
             .from('Service')
             .select('*')
@@ -190,10 +197,17 @@ export default function BookingDetailPage() {
             .select('*')
             .eq('id', folioRes.data.propertyId)
             .single(),
+          supabase
+            .from('BookingRoom')
+            .select('id, roomId, checkInDate, checkOutDate, Booking!inner(id, status, checkInDate, checkOutDate)')
+            .neq('Booking.status', 'CANCELLED')
+            .neq('Booking.status', 'CHECKED_OUT')
+            .eq('Booking.propertyId', folioRes.data.propertyId),
         ])
 
         if (allServicesRes.data) setAvailableServices(allServicesRes.data)
         if (allRoomsRes.data) setAvailableRooms(allRoomsRes.data)
+        if (activeBookingsRes.data) setActiveBookings(activeBookingsRes.data)
         if (propRes.data) {
           const propertyData = propRes.data as Property
           setProperty(propertyData)
@@ -210,6 +224,33 @@ export default function BookingDetailPage() {
       setLoading(false)
     }
   }, [id, supabase])
+
+  const checkOverbookingOverlap = (roomId: string, startStr: string, endStr: string) => {
+    if (!roomId || !startStr || !endStr || !property) return null
+
+    const checkinTime = property.settings?.checkinTime || "08:00"
+    const checkoutTime = property.settings?.checkoutTime || "07:00"
+    let selStart = new Date(startStr + " " + checkinTime)
+    let selEnd = new Date(endStr + " " + checkoutTime)
+    if (property.timezone) {
+      selStart = fromZonedTime(startStr, property.timezone)
+      selEnd = fromZonedTime(endStr, property.timezone)
+    }
+
+    return activeBookings.find(stay => {
+      if (stay.Booking?.id === id) return false
+      if (stay.roomId !== roomId) return false
+
+      const startVal = stay.checkInDate || stay.Booking?.checkInDate
+      const endVal = stay.checkOutDate || stay.Booking?.checkOutDate
+      if (!startVal || !endVal) return false
+
+      const stayStart = new Date(startVal)
+      const stayEnd = new Date(endVal)
+
+      return stayStart < selEnd && stayEnd > selStart
+    })
+  }
 
   useEffect(() => {
     fetchFolioData()
@@ -452,7 +493,50 @@ export default function BookingDetailPage() {
       .from('Booking')
       .update({ status: 'CHECKED_OUT', actualCheckOut: now } as any)
       .eq('id', folio.id)
+
+    // Mark rooms as dirty
+    const roomIds = assignments.map(a => a.roomId).filter(Boolean) as string[]
+    if (roomIds.length > 0) {
+      await supabase
+        .from('Room')
+        .update({ status: 'DIRTY' })
+        .in('id', roomIds)
+    }
+
     fetchFolioData()
+  }
+
+  const handleUpdateDiscount = async () => {
+    if (!folio) return
+    const amt = parseFloat(discountAmountInput) || 0
+    if (amt < 0) {
+      alert("Discount amount cannot be negative")
+      return
+    }
+
+    setLoading(true)
+    const updatedFolio = { ...folio, discountAmount: amt, discountType: discountTypeInput }
+    const { total: newTotal } = calculateCurrentTotal(updatedFolio, assignments, services)
+
+    const { error } = await supabase
+      .from('Booking')
+      .update({
+        discountAmount: amt,
+        discountType: discountTypeInput,
+        totalAmount: newTotal
+      } as any)
+      .eq('id', folio.id)
+
+    if (error) {
+      console.error("Error updating discount:", error)
+      alert("Failed to update discount")
+    } else {
+      setFolio(updatedFolio)
+      await syncBookingTotal(assignments, services, updatedFolio)
+      setIsDiscountDialogOpen(false)
+      fetchFolioData()
+    }
+    setLoading(false)
   }
 
   const handleCancelBooking = async () => {
@@ -636,6 +720,14 @@ export default function BookingDetailPage() {
         .eq('id', assignmentId)
 
       if (!error) {
+        // Mark old room as DIRTY
+        if (activeAssignment.roomId) {
+          await supabase
+            .from('Room')
+            .update({ status: 'DIRTY' })
+            .eq('id', activeAssignment.roomId)
+        }
+
         const nextAssignments = assignments.map(a =>
           a.id === assignmentId
             ? {
@@ -664,6 +756,14 @@ export default function BookingDetailPage() {
       if (updateError) {
         console.error("Error updating old room checkout date:", updateError)
         return
+      }
+
+      // Mark old room as DIRTY
+      if (activeAssignment.roomId) {
+        await supabase
+          .from('Room')
+          .update({ status: 'DIRTY' })
+          .eq('id', activeAssignment.roomId)
       }
 
       // 2. Insert new assignment starting at switchDate
@@ -1202,7 +1302,24 @@ export default function BookingDetailPage() {
                 <CardContent className="p-10 space-y-6">
                   <SummaryRow label="Stay Subtotal" value={totalRoomCharges} />
                   <SummaryRow label="Services & F&B" value={serviceSubtotal} />
-                  <SummaryRow label="Discount Applied" value={-discount} className="text-emerald-400" />
+                  <div className="flex justify-between items-center text-sm font-bold text-emerald-400">
+                    <span className="flex items-center gap-2">
+                      Discount Applied
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-white/40 hover:text-white hover:bg-white/10 rounded-md transition-all shrink-0"
+                        onClick={() => {
+                          setDiscountAmountInput(folio?.discountAmount?.toString() || '0')
+                          setDiscountTypeInput((folio?.discountType as 'FIXED' | 'PERCENTAGE') || 'FIXED')
+                          setIsDiscountDialogOpen(true)
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </span>
+                    <span className="font-black tracking-tight">- ₹{discount.toLocaleString()}</span>
+                  </div>
                   <SummaryRow label="GST & Taxes" value={taxAmount} />
 
                   <div className="pt-6 border-t border-white/10 flex items-center justify-between">
@@ -1589,6 +1706,25 @@ export default function BookingDetailPage() {
                 </Select>
               </div>
 
+              {selectedRoomId && (() => {
+                const overlap = checkOverbookingOverlap(
+                  selectedRoomId,
+                  roomCheckInDate,
+                  roomCheckOutDate || (folio ? format(new Date(folio.checkOutDate), 'yyyy-MM-dd') : '')
+                )
+                if (overlap) {
+                  return (
+                    <div className="flex items-center gap-1.5 text-amber-600 bg-amber-50 border border-amber-100 rounded-lg p-2.5 mt-1 select-none">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <p className="text-[10px] font-bold leading-normal uppercase tracking-tight">
+                        Warning: Room is already booked during this period
+                      </p>
+                    </div>
+                  )
+                }
+                return null
+              })()}
+
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Check-In Date</Label>
                 <Input
@@ -1667,6 +1803,26 @@ export default function BookingDetailPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {selectedRoomId && roomToSwitch && (() => {
+              const switchCheckInStr = switchDate
+              const switchCheckOutStr = roomToSwitch.checkOutDate
+                ? format(new Date(roomToSwitch.checkOutDate), 'yyyy-MM-dd')
+                : (folio ? format(new Date(folio.checkOutDate), 'yyyy-MM-dd') : '')
+
+              const overlap = checkOverbookingOverlap(selectedRoomId, switchCheckInStr, switchCheckOutStr)
+              if (overlap) {
+                return (
+                  <div className="flex items-center gap-1.5 text-amber-600 bg-amber-50 border border-amber-100 rounded-lg p-2.5 mt-1 select-none">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <p className="text-[10px] font-bold leading-normal uppercase tracking-tight">
+                      Warning: Room is already booked during this period
+                    </p>
+                  </div>
+                )
+              }
+              return null
+            })()}
 
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Switch Date</Label>
@@ -1779,6 +1935,60 @@ export default function BookingDetailPage() {
                 }}
               >
                 Confirm Extension
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Discount Update Dialog */}
+      <Dialog open={isDiscountDialogOpen} onOpenChange={setIsDiscountDialogOpen}>
+        <DialogContent className="rounded-3xl border-slate-100 max-w-md p-6">
+          <DialogHeader>
+            <DialogTitle className="font-heading font-black text-slate-800 text-lg uppercase tracking-tight">Add / Update Discount</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Discount Type</Label>
+              <Select
+                value={discountTypeInput}
+                onValueChange={(val: any) => setDiscountTypeInput(val || 'FIXED')}
+              >
+                <SelectTrigger className="h-12 rounded-xl bg-slate-50 border-slate-100 font-bold">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-slate-100 shadow-2xl">
+                  <SelectItem value="FIXED" className="rounded-lg font-bold">Fixed Amount (₹)</SelectItem>
+                  <SelectItem value="PERCENTAGE" className="rounded-lg font-bold">Percentage (%)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Discount Value</Label>
+              <Input
+                type="number"
+                min="0"
+                className="h-12 rounded-xl font-bold bg-slate-50 border-slate-100"
+                value={discountAmountInput}
+                onChange={(e) => setDiscountAmountInput(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-4 pt-4">
+              <Button
+                variant="outline"
+                className="flex-1 h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-slate-200"
+                onClick={() => setIsDiscountDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={loading}
+                className="flex-1 h-12 rounded-xl font-black uppercase text-[10px] tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 text-white"
+                onClick={handleUpdateDiscount}
+              >
+                Apply Discount
               </Button>
             </div>
           </div>
