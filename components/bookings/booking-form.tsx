@@ -120,6 +120,7 @@ export function BookingForm({
           checkOutDate,
           Booking!inner(id, status, checkInDate, checkOutDate)
         `)
+        .eq('Booking.propertyId', currentProperty.id)
         .neq('Booking.status', 'CANCELLED')
         .neq('Booking.status', 'CHECKED_OUT')
 
@@ -131,6 +132,7 @@ export function BookingForm({
   }, [currentProperty?.id])
 
   const getRoomOverbookingStay = (roomId: string) => {
+    console.log(roomId)
     if (!formData.checkIn || !formData.checkOut || !currentProperty) return null
 
     const checkinTime = currentProperty.settings?.checkinTime || "08:00"

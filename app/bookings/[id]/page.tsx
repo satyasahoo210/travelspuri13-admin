@@ -1690,20 +1690,19 @@ export default function BookingDetailPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select Room</Label>
-                <Select value={selectedRoomId} onValueChange={(val) => setSelectedRoomId(val || '')}>
-                  <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
-                    <SelectValue placeholder="Select a room" />
-                  </SelectTrigger>
-                  <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
-                    {availableRooms
+                <SearchableCombobox
+                  options={
+                    availableRooms
                       .filter((r) => r.status === 'AVAILABLE' && !assignments.some((a) => a.roomId === r.id))
-                      .map((r) => (
-                        <SelectItem key={r.id} value={r.id} className="rounded-xl font-bold">
-                          Room {r.roomNumber} ({r.RoomType?.name} - ₹{r.RoomType?.defaultPrice}/night)
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                      .map((r) => ({
+                        value: r.id,
+                        label: `${r.roomNumber} (${r.RoomType?.name} - ₹${r.RoomType?.defaultPrice}/night)`,
+                      }))
+                  }
+                  value={selectedRoomId}
+                  onChange={(val) => setSelectedRoomId(val || '')}
+                  placeholder="Search Room..."
+                />
               </div>
 
               {selectedRoomId && (() => {
@@ -1788,20 +1787,16 @@ export default function BookingDetailPage() {
 
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select New Room</Label>
-              <Select value={selectedRoomId} onValueChange={(val) => setSelectedRoomId(val || '')}>
-                <SelectTrigger className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold">
-                  <SelectValue placeholder="Select new room" />
-                </SelectTrigger>
-                <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
-                  {availableRooms
+              <SearchableCombobox
+                options={
+                  availableRooms
                     .filter((r) => r.status === 'AVAILABLE' && !assignments.some((a) => a.roomId === r.id))
-                    .map((r) => (
-                      <SelectItem key={r.id} value={r.id} className="rounded-xl font-bold">
-                        Room {r.roomNumber} ({r.RoomType?.name} - ₹{r.RoomType?.defaultPrice}/night)
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+                    .map((r) => ({ value: r.id, label: `Room ${r.roomNumber} (${r.RoomType?.name})  - ₹${r.RoomType?.defaultPrice}/night` }))
+                }
+                onChange={(val) => setSelectedRoomId(val || '')}
+                placeholder="Search new room"
+                className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold"
+              />
             </div>
 
             {selectedRoomId && roomToSwitch && (() => {

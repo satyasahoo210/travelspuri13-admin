@@ -36,13 +36,13 @@ export default function HousekeepingPage() {
 
   const fetchRooms = async () => {
     if (!currentProperty) return;
-    
+
     const { data } = await supabase
       .from('Room')
       .select('*, RoomType!inner(name, propertyId)')
       .eq('RoomType.propertyId', currentProperty.id)
       .order('roomNumber', { ascending: true });
-    
+
     setRooms(data || []);
     setLoading(false);
   };
@@ -53,10 +53,10 @@ export default function HousekeepingPage() {
     // Real-time subscription
     const channel = supabase
       .channel('housekeeping_changes')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'Room' 
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'Room'
       }, () => {
         fetchRooms();
       })
@@ -71,13 +71,13 @@ export default function HousekeepingPage() {
     // Map housekeeping status to main room status
     let mainStatus: Enums<"RoomStatus"> = 'DIRTY';
     if (status === 'READY') mainStatus = 'AVAILABLE';
-    
+
     // Optimistic update
     setRooms(prev => prev.map(r => r.id === id ? { ...r, housekeepingStatus: status, status: mainStatus } : r));
-    
+
     const { error } = await supabase
       .from('Room')
-      .update({ 
+      .update({
         housekeepingStatus: status,
         status: mainStatus
       })
@@ -104,8 +104,8 @@ export default function HousekeepingPage() {
     }
   };
 
-  const filteredRooms = rooms.filter(r => 
-    r.roomNumber.includes(search) || 
+  const filteredRooms = rooms.filter(r =>
+    r.roomNumber.includes(search) ||
     r.RoomType?.name.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -125,12 +125,12 @@ export default function HousekeepingPage() {
           <h2 className="text-3xl font-heading font-extrabold tracking-tight text-foreground">Housekeeping</h2>
           <p className="text-muted-foreground text-sm font-medium">Monitor and manage room readiness across the property.</p>
         </div>
-        
+
         <div className="flex items-center gap-4">
           <div className="relative w-full md:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search room..." 
+            <Input
+              placeholder="Search room..."
               className="pl-10 premium-card rounded-xl border-gray-200 focus:ring-primary/20"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -154,7 +154,7 @@ export default function HousekeepingPage() {
                 <h3 className={cn("text-2xl font-black mt-1", stat.color)}>{stat.count}</h3>
               </div>
               <div className={cn("p-2 rounded-lg bg-white/50", stat.color)}>
-                 <stat.icon className="h-4 w-4" />
+                <stat.icon className="h-4 w-4" />
               </div>
             </div>
           </Card>
@@ -191,33 +191,33 @@ export default function HousekeepingPage() {
               </Badge>
 
               <div className="grid grid-cols-4 gap-1.5">
-                <Button 
-                  size="icon" 
-                  variant="outline" 
+                <Button
+                  size="icon"
+                  variant="outline"
                   className={cn("h-10 w-full rounded-lg transition-all hover:bg-amber-50", room.housekeepingStatus === 'DIRTY' && "bg-amber-100 border-amber-300 ring-2 ring-amber-200")}
                   onClick={() => updateStatus(room.id, 'DIRTY')}
                 >
                   <AlertCircle className="h-4 w-4 text-amber-600" />
                 </Button>
-                <Button 
-                  size="icon" 
-                  variant="outline" 
+                <Button
+                  size="icon"
+                  variant="outline"
                   className={cn("h-10 w-full rounded-lg transition-all hover:bg-blue-50", room.housekeepingStatus === 'CLEANING' && "bg-blue-100 border-blue-300 ring-2 ring-blue-200")}
                   onClick={() => updateStatus(room.id, 'CLEANING')}
                 >
                   <Clock className="h-4 w-4 text-blue-600" />
                 </Button>
-                <Button 
-                  size="icon" 
-                  variant="outline" 
+                <Button
+                  size="icon"
+                  variant="outline"
                   className={cn("h-10 w-full rounded-lg transition-all hover:bg-purple-50", room.housekeepingStatus === 'INSPECTING' && "bg-purple-100 border-purple-300 ring-2 ring-purple-200")}
                   onClick={() => updateStatus(room.id, 'INSPECTING')}
                 >
                   <RefreshCcw className="h-4 w-4 text-purple-600" />
                 </Button>
-                <Button 
-                  size="icon" 
-                  variant="outline" 
+                <Button
+                  size="icon"
+                  variant="outline"
                   className={cn("h-10 w-full rounded-lg transition-all hover:bg-emerald-50", room.housekeepingStatus === 'READY' && "bg-emerald-100 border-emerald-300 ring-2 ring-emerald-200")}
                   onClick={() => updateStatus(room.id, 'READY')}
                 >
@@ -225,8 +225,8 @@ export default function HousekeepingPage() {
                 </Button>
               </div>
 
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 className={cn(
                   "w-full text-[10px] font-bold uppercase tracking-widest h-8 rounded-lg",
                   room.priorityCleaning ? "text-primary bg-primary/5 hover:bg-primary/10" : "text-muted-foreground hover:bg-gray-50"
