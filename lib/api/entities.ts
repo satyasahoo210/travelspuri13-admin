@@ -37,10 +37,10 @@ export const roomApi = {
     return data;
   },
 
-  updateStatus: async (id: string, status: Tables<'Room'>['status']) => {
+  updateStatus: async (id: string, status: Tables<'Room'>['housekeepingStatus']) => {
     const { data, error } = await supabase
       .from('Room')
-      .update({ status })
+      .update({ housekeepingStatus: status })
       .eq('id', id)
       .select()
       .single();

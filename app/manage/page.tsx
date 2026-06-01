@@ -48,6 +48,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
@@ -106,6 +107,7 @@ export default function ManagePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
+  const [existingPhotos, setExistingPhotos] = useState<string[]>([])
 
   // State for filtering & guest logic
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
@@ -127,6 +129,11 @@ export default function ManagePage() {
       if (editingItem.roomId) setSelectedRoomId(editingItem.roomId)
       if (editingItem.guestId) setSelectedGuestId(editingItem.guestId)
       if (editingItem.bookingId) setSelectedBookingId(editingItem.bookingId)
+      if (editingItem.photos) {
+        setExistingPhotos(editingItem.photos)
+      } else {
+        setExistingPhotos([])
+      }
     } else {
       setSelectedPropertyId(null)
       setSelectedRoomTypeId('')
@@ -134,6 +141,7 @@ export default function ManagePage() {
       setSelectedGuestId('')
       setSelectedBookingId('')
       setIsQuickAddGuest(false)
+      setExistingPhotos([])
     }
   }, [editingItem])
 
@@ -255,6 +263,10 @@ export default function ManagePage() {
     const data = Object.fromEntries(formData.entries())
 
     try {
+      if (!editingItem && activeEntity === 'Property' && user?.role !== 'SUPER_ADMIN') {
+        throw new Error('Only Super Admins are allowed to register new properties.')
+      }
+
       if (activeEntity === 'Employee') {
         const {
           data: { session },
@@ -323,6 +335,30 @@ export default function ManagePage() {
         logoUrl = publicUrlData.publicUrl
       }
 
+      // Handle Photos upload for Property & RoomType
+      let uploadedPhotoUrls: string[] = []
+      const photosFiles = formData.getAll('photosFiles') as File[]
+      
+      if (photosFiles && photosFiles.length > 0) {
+        for (const file of photosFiles) {
+          if (file.size > 0) {
+            const fileExt = file.name.split('.').pop()
+            const fileName = `${Date.now()}_${Math.random()}.${fileExt}`
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('properties')
+              .upload(fileName, file)
+            if (uploadError) throw uploadError
+            const { data: publicUrlData } = supabase.storage
+              .from('properties')
+              .getPublicUrl(uploadData.path)
+            uploadedPhotoUrls.push(publicUrlData.publicUrl)
+          }
+        }
+      }
+
+      // Combine existing photos with uploaded ones
+      const finalPhotos = [...existingPhotos, ...uploadedPhotoUrls]
+
       // Handle Quick Add Guest
       if (activeEntity === 'Booking' && isQuickAddGuest) {
         const { data: newGuest, error: guestError } = await supabase
@@ -382,6 +418,7 @@ export default function ManagePage() {
         roomId,
         idProofFile: _idProofFile,
         logoFile: _logoFile,
+        photosFiles: _photosFiles,
         overrideRate: _overrideRate,
         numberOfRooms,
         ...payloadData
@@ -391,6 +428,7 @@ export default function ManagePage() {
         ...payloadData,
         ...(idProofUrl && activeEntity === 'Guest' ? { idProofUrl } : {}),
         ...(logoUrl && activeEntity === 'Property' ? { logoUrl } : {}),
+        ...(activeEntity === 'Property' || activeEntity === 'RoomType' ? { photos: finalPhotos } : {}),
         ...(!entitiesWithoutDirectTenant.includes(activeEntity)
           ? { tenantId: user?.tenantId }
           : {}),
@@ -862,15 +900,17 @@ export default function ManagePage() {
                 <ClipboardList className="w-5 h-5 mr-2" /> BULK UPLOAD
               </Button>
             )}
-            <Button
-              onClick={() => {
-                setEditingItem(null)
-                setIsDialogOpen(true)
-              }}
-              className="w-full md:w-auto flex-1 md:flex-none rounded-2xl font-black text-xs tracking-widest uppercase h-14 px-8 shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all"
-            >
-              <Plus className="w-5 h-5 mr-2" /> ADD {activeEntity}
-            </Button>
+            {!(activeEntity === 'Property' && user?.role !== 'SUPER_ADMIN') && (
+              <Button
+                onClick={() => {
+                  setEditingItem(null)
+                  setIsDialogOpen(true)
+                }}
+                className="w-full md:w-auto flex-1 md:flex-none rounded-2xl font-black text-xs tracking-widest uppercase h-14 px-8 shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-95 transition-all"
+              >
+                <Plus className="w-5 h-5 mr-2" /> ADD {activeEntity}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -923,16 +963,51 @@ export default function ManagePage() {
                               .split('.')
                               .reduce((obj, key) => obj?.[key], item)
                           : item[col]
+
+                        const displayValue = col.toLowerCase().includes('date')
+                          ? value
+                            ? new Date(value).toLocaleDateString()
+                            : '-'
+                          : String(value || '-')
+
+                        if (activeEntity === 'Property' && col === 'name') {
+                          return (
+                            <td
+                              key={col}
+                              className="px-8 py-5 text-sm font-bold text-slate-700"
+                            >
+                              <Link
+                                href={`/properties/${item.id}`}
+                                className="text-primary hover:underline transition-all"
+                              >
+                                {displayValue}
+                              </Link>
+                            </td>
+                          )
+                        }
+
+                        if (activeEntity === 'Room' && col === 'roomNumber') {
+                          return (
+                            <td
+                              key={col}
+                              className="px-8 py-5 text-sm font-bold text-slate-700"
+                            >
+                              <Link
+                                href={`/rooms/${item.id}`}
+                                className="text-primary hover:underline transition-all"
+                              >
+                                {displayValue}
+                              </Link>
+                            </td>
+                          )
+                        }
+
                         return (
                           <td
                             key={col}
                             className="px-8 py-5 text-sm font-bold text-slate-700"
                           >
-                            {col.toLowerCase().includes('date')
-                              ? value
-                                ? new Date(value).toLocaleDateString()
-                                : '-'
-                              : String(value || '-')}
+                            {displayValue}
                           </td>
                         )
                       })}
@@ -1081,6 +1156,35 @@ export default function ManagePage() {
                 className="pt-3"
               />
             </div>
+            {existingPhotos.length > 0 && (
+              <div className="col-span-full space-y-2">
+                <Label>Existing Property Photos</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  {existingPhotos.map((url, index) => (
+                    <div key={url} className="relative group aspect-video rounded-xl overflow-hidden border bg-white animate-fade-in">
+                      <img src={url} alt={`Photo ${index + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setExistingPhotos(prev => prev.filter(item => item !== url))}
+                        className="absolute top-2 right-2 p-1.5 bg-rose-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="space-y-2 col-span-full">
+              <Label>Upload Photos</Label>
+              <Input
+                name="photosFiles"
+                type="file"
+                accept="image/*"
+                multiple
+                className="pt-3"
+              />
+            </div>
           </>
         )
       case 'RoomType':
@@ -1128,6 +1232,35 @@ export default function ManagePage() {
                   })) || []
                 }
                 placeholder="Select Property"
+              />
+            </div>
+            {existingPhotos.length > 0 && (
+              <div className="col-span-full space-y-2">
+                <Label>Existing Room Type Photos</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  {existingPhotos.map((url, index) => (
+                    <div key={url} className="relative group aspect-video rounded-xl overflow-hidden border bg-white animate-fade-in">
+                      <img src={url} alt={`Photo ${index + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setExistingPhotos(prev => prev.filter(item => item !== url))}
+                        className="absolute top-2 right-2 p-1.5 bg-rose-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="space-y-2 col-span-full">
+              <Label>Upload Photos</Label>
+              <Input
+                name="photosFiles"
+                type="file"
+                accept="image/*"
+                multiple
+                className="pt-3"
               />
             </div>
           </>

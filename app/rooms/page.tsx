@@ -2,14 +2,16 @@
 
 import { useProperty } from '@/components/providers/property-provider';
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { createClient } from '@/lib/utils/supabase/client';
+import { Input } from "@/components/ui/input";
+import { Tables } from '@/database.types';
 import { cn } from "@/lib/utils";
+import { createClient } from '@/lib/utils/supabase/client';
 import { motion } from "framer-motion";
 import { BedDouble, CheckCircle2, Construction, Eraser, Loader2, Search } from "lucide-react";
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 const statusIcons = {
@@ -24,9 +26,6 @@ export default function RoomsPage() {
   const supabase = createClient();
   const [rooms, setRooms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedRoom, setSelectedRoom] = useState<any | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [updating, setUpdating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchRooms = async () => {
@@ -35,38 +34,22 @@ export default function RoomsPage() {
       .from('Room')
       .select('*, RoomType!inner(propertyId, name)')
       .eq('RoomType.propertyId', currentProperty.id);
-    
+
     setRooms(data || []);
     setLoading(false);
   };
 
-  const handleUpdateStatus = async (roomId: string, newStatus: string) => {
-    setUpdating(true);
-    const { error } = await supabase
-      .from('Room')
-      .update({ status: newStatus as any })
-      .eq('id', roomId);
 
-    if (error) {
-      console.error("Error updating room status:", error);
-      alert("Failed to update room status");
-    } else {
-      setIsDialogOpen(false);
-      setSelectedRoom(null);
-      fetchRooms();
-    }
-    setUpdating(false);
-  };
 
   useEffect(() => {
     fetchRooms();
 
     const channel = supabase
       .channel('rooms_live')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'Room' 
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'Room'
       }, () => {
         fetchRooms();
       })
@@ -107,7 +90,7 @@ export default function RoomsPage() {
       <div className="h-[60vh] flex flex-col items-center justify-center space-y-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-muted-foreground font-medium text-sm text-center">
-          Synchronizing rooms...<br/>
+          Synchronizing rooms...<br />
           <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Travels Puri 13</span>
         </p>
       </div>
@@ -116,7 +99,7 @@ export default function RoomsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-fade-in">
-       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-3xl font-heading font-black tracking-tight text-foreground">Rooms</h2>
           <p className="text-muted-foreground text-sm font-medium">Monitor and manage real-time room status across the property.</p>
@@ -158,31 +141,28 @@ export default function RoomsPage() {
                 {typeRooms.map((room: any, i: number) => {
                   const config = statusIcons[room.status as keyof typeof statusIcons] || statusIcons.AVAILABLE;
                   return (
-                    <motion.div
-                      key={room.id}
-                      initial={{ scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ delay: i * 0.01 }}
-                      onClick={() => {
-                        setSelectedRoom(room);
-                        setIsDialogOpen(true);
-                      }}
-                    >
-                      <Card className={cn(
-                        "premium-card h-full min-h-[120px] cursor-pointer group hover:scale-105 transition-all overflow-hidden relative border-none shadow-sm",
-                        config.bg
-                      )}>
-                        <CardContent className="p-4 flex flex-col items-center justify-center text-center gap-2">
-                          <config.icon className={cn("h-6 w-6 mt-2", config.color)} />
-                          <div>
-                            <p className="text-lg font-black tracking-tight text-foreground">{room.roomNumber}</p>
-                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold opacity-70">
-                              {room.status}
-                            </p>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </motion.div>
+                    <Link key={room.id} href={`/rooms/${room.id}`} className="block">
+                      <motion.div
+                        initial={{ scale: 0.9, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ delay: i * 0.01 }}
+                      >
+                        <Card className={cn(
+                          "premium-card h-full min-h-[120px] cursor-pointer group hover:scale-105 transition-all overflow-hidden relative border-none shadow-sm",
+                          config.bg
+                        )}>
+                          <CardContent className="p-4 flex flex-col items-center justify-center text-center gap-2">
+                            <config.icon className={cn("h-6 w-6 mt-2", config.color)} />
+                            <div>
+                              <p className="text-lg font-black tracking-tight text-foreground">{room.roomNumber}</p>
+                              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold opacity-70">
+                                {room.status}
+                              </p>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    </Link>
                   );
                 })}
               </div>
@@ -190,62 +170,6 @@ export default function RoomsPage() {
           ))
         )}
       </div>
-
-      {/* Room Status Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="rounded-3xl border-slate-100 max-w-md p-6 bg-white">
-          <DialogHeader>
-            <DialogTitle className="font-heading font-black text-slate-800 text-lg uppercase tracking-tight">Update Room Status</DialogTitle>
-          </DialogHeader>
-          {selectedRoom && (
-            <div className="space-y-6 pt-4">
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
-                <div>
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Room Number</p>
-                  <p className="text-2xl font-heading font-black text-slate-900">Room {selectedRoom.roomNumber}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest text-right">Current Status</p>
-                  <Badge className="font-bold text-[10px] uppercase tracking-widest mt-1">
-                    {selectedRoom.status}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { value: 'AVAILABLE', label: 'Available', color: 'bg-emerald-500 hover:bg-emerald-600 text-white' },
-                  { value: 'DIRTY', label: 'Dirty', color: 'bg-amber-500 hover:bg-amber-600 text-white' },
-                  { value: 'MAINTENANCE', label: 'Maintenance', color: 'bg-destructive hover:bg-destructive/90 text-white' },
-                  { value: 'OCCUPIED', label: 'Occupied', color: 'bg-slate-900 hover:bg-slate-800 text-white' },
-                ].map((opt) => (
-                  <Button
-                    key={opt.value}
-                    disabled={updating}
-                    className={cn(
-                      "h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest border-none shadow-sm transition-all active:scale-95",
-                      selectedRoom.status === opt.value ? opt.color : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                    )}
-                    onClick={() => handleUpdateStatus(selectedRoom.id, opt.value)}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <Button
-                  variant="outline"
-                  className="rounded-xl h-10 px-6 border-slate-200 font-black uppercase text-[10px] tracking-widest"
-                  onClick={() => setIsDialogOpen(false)}
-                >
-                  Close
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

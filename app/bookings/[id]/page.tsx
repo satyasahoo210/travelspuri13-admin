@@ -233,8 +233,8 @@ export default function BookingDetailPage() {
     let selStart = new Date(startStr + " " + checkinTime)
     let selEnd = new Date(endStr + " " + checkoutTime)
     if (property.timezone) {
-      selStart = fromZonedTime(startStr, property.timezone)
-      selEnd = fromZonedTime(endStr, property.timezone)
+      selStart = fromZonedTime(`${startStr}T${checkinTime}`, property.timezone)
+      selEnd = fromZonedTime(`${endStr}T${checkoutTime}`, property.timezone)
     }
 
     return activeBookings.find(stay => {
@@ -499,7 +499,7 @@ export default function BookingDetailPage() {
     if (roomIds.length > 0) {
       await supabase
         .from('Room')
-        .update({ status: 'DIRTY' })
+        .update({ housekeepingStatus: 'DIRTY' })
         .in('id', roomIds)
     }
 
@@ -665,7 +665,26 @@ export default function BookingDetailPage() {
 
   const handleAddRoom = async (roomId: string, checkIn?: string, checkOut?: string) => {
     const room = availableRooms.find((r) => r.id === roomId)
-    if (!room || !folio) return
+    if (!room || !folio || !property) return
+
+    const checkinTime = property.settings?.checkinTime || "08:00"
+    const checkoutTime = property.settings?.checkoutTime || "07:00"
+
+    let checkInISO: string | null = null
+    if (checkIn) {
+      const dateTimeStr = `${checkIn}T${checkinTime}`
+      checkInISO = property.timezone
+        ? fromZonedTime(dateTimeStr, property.timezone).toISOString()
+        : new Date(dateTimeStr).toISOString()
+    }
+
+    let checkOutISO: string | null = null
+    if (checkOut) {
+      const dateTimeStr = `${checkOut}T${checkoutTime}`
+      checkOutISO = property.timezone
+        ? fromZonedTime(dateTimeStr, property.timezone).toISOString()
+        : new Date(dateTimeStr).toISOString()
+    }
 
     const { data, error } = await supabase
       .from('BookingRoom')
@@ -674,8 +693,8 @@ export default function BookingDetailPage() {
         roomId: room.id,
         roomTypeId: room.roomTypeId,
         status: folio.status,
-        checkInDate: checkIn || null,
-        checkOutDate: checkOut || null,
+        checkInDate: checkInISO,
+        checkOutDate: checkOutISO,
       }])
       .select('*, Room(*), RoomType(*)')
       .single()
@@ -690,17 +709,18 @@ export default function BookingDetailPage() {
   const handleSwitchRoom = async (assignmentId: string, newRoomId: string, switchDateStr: string) => {
     const newRoom = availableRooms.find((r) => r.id === newRoomId)
     const activeAssignment = assignments.find((a) => a.id === assignmentId)
-    if (!newRoom || !activeAssignment || !folio || !switchDateStr) return
+    if (!newRoom || !activeAssignment || !folio || !switchDateStr || !property) return
 
-    const bookingCheckInVal = format(new Date(folio.checkInDate), 'yyyy-MM-dd')
-    const bookingCheckOutVal = format(new Date(folio.checkOutDate), 'yyyy-MM-dd')
+    const tz = property.timezone || 'UTC'
+    const bookingCheckInVal = format(toZonedTime(new Date(folio.checkInDate), tz), 'yyyy-MM-dd')
+    const bookingCheckOutVal = format(toZonedTime(new Date(folio.checkOutDate), tz), 'yyyy-MM-dd')
 
     const assignCheckInVal = activeAssignment.checkInDate
-      ? format(new Date(activeAssignment.checkInDate), 'yyyy-MM-dd')
+      ? format(toZonedTime(new Date(activeAssignment.checkInDate), tz), 'yyyy-MM-dd')
       : bookingCheckInVal
 
     const assignCheckOutVal = activeAssignment.checkOutDate
-      ? format(new Date(activeAssignment.checkOutDate), 'yyyy-MM-dd')
+      ? format(toZonedTime(new Date(activeAssignment.checkOutDate), tz), 'yyyy-MM-dd')
       : bookingCheckOutVal
 
     if (switchDateStr < assignCheckInVal || switchDateStr > assignCheckOutVal) {
@@ -724,7 +744,7 @@ export default function BookingDetailPage() {
         if (activeAssignment.roomId) {
           await supabase
             .from('Room')
-            .update({ status: 'DIRTY' })
+            .update({ housekeepingStatus: 'DIRTY' })
             .eq('id', activeAssignment.roomId)
         }
 
@@ -745,11 +765,22 @@ export default function BookingDetailPage() {
       }
     } else {
       // Split the assignment
+      const checkinTime = property.settings?.checkinTime || "08:00"
+      const checkoutTime = property.settings?.checkoutTime || "07:00"
+
+      const switchCheckOutISO = property.timezone
+        ? fromZonedTime(`${switchDateStr}T${checkoutTime}`, property.timezone).toISOString()
+        : new Date(`${switchDateStr}T${checkoutTime}`).toISOString()
+
+      const switchCheckInISO = property.timezone
+        ? fromZonedTime(`${switchDateStr}T${checkinTime}`, property.timezone).toISOString()
+        : new Date(`${switchDateStr}T${checkinTime}`).toISOString()
+
       // 1. Update the old assignment's checkOutDate to the switchDate
       const { error: updateError } = await supabase
         .from('BookingRoom')
         .update({
-          checkOutDate: switchDateStr,
+          checkOutDate: switchCheckOutISO,
         })
         .eq('id', assignmentId)
 
@@ -762,7 +793,7 @@ export default function BookingDetailPage() {
       if (activeAssignment.roomId) {
         await supabase
           .from('Room')
-          .update({ status: 'DIRTY' })
+          .update({ housekeepingStatus: 'DIRTY' })
           .eq('id', activeAssignment.roomId)
       }
 
@@ -774,7 +805,7 @@ export default function BookingDetailPage() {
           roomId: newRoom.id,
           roomTypeId: newRoom.roomTypeId,
           status: folio.status,
-          checkInDate: switchDateStr,
+          checkInDate: switchCheckInISO,
           checkOutDate: activeAssignment.checkOutDate || null,
           priceOverride: null,
         }])
@@ -789,7 +820,7 @@ export default function BookingDetailPage() {
       // 3. Update local state and trigger sync
       const nextAssignments = assignments.map(a =>
         a.id === assignmentId
-          ? { ...a, checkOutDate: switchDateStr }
+          ? { ...a, checkOutDate: switchCheckOutISO }
           : a
       )
       const updatedAssignments = [...nextAssignments, newAssignment]
@@ -802,12 +833,13 @@ export default function BookingDetailPage() {
     const currAssignment = assignments.find((a) => a.id === assignmentId)
     if (!currAssignment || !folio) return
 
+    const tz = property?.timezone || 'UTC'
     const prevAssignment = assignments.find((a) => {
       if (a.id === currAssignment.id) return false
       if (!a.checkOutDate || !currAssignment.checkInDate) return false
 
-      const prevCheckOutVal = format(new Date(a.checkOutDate), 'yyyy-MM-dd')
-      const currCheckInVal = format(new Date(currAssignment.checkInDate), 'yyyy-MM-dd')
+      const prevCheckOutVal = format(toZonedTime(new Date(a.checkOutDate), tz), 'yyyy-MM-dd')
+      const currCheckInVal = format(toZonedTime(new Date(currAssignment.checkInDate), tz), 'yyyy-MM-dd')
       return prevCheckOutVal === currCheckInVal
     })
 
@@ -1227,7 +1259,7 @@ export default function BookingDetailPage() {
                               <p className="font-black text-slate-900">Room {a.Room?.roomNumber} Stay</p>
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                 {roomNights} nights x ₹{(Number(a.priceOverride) || Number(a.RoomType?.defaultPrice) || 0).toLocaleString()}
-                                {` (${format(new Date(a.checkInDate || folio?.checkInDate || ''), 'dd MMM')} - ${format(new Date(a.checkOutDate || folio?.checkOutDate || ''), 'dd MMM')})`}
+                                {` (${format(toZonedTime(new Date(a.checkInDate || folio?.checkInDate || ''), property?.timezone || 'UTC'), 'dd MMM')} - ${format(toZonedTime(new Date(a.checkOutDate || folio?.checkOutDate || ''), property?.timezone || 'UTC'), 'dd MMM')})`}
                               </p>
                             </div>
                           </div>
@@ -1470,9 +1502,10 @@ export default function BookingDetailPage() {
                         size="sm"
                         className="rounded-xl font-black uppercase text-[10px] tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20"
                         onClick={() => {
+                          const tz = property?.timezone || 'UTC'
                           setSelectedRoomId('')
-                          setRoomCheckInDate(folio ? format(new Date(folio.checkInDate), 'yyyy-MM-dd') : '')
-                          setRoomCheckOutDate(folio ? format(new Date(folio.checkOutDate), 'yyyy-MM-dd') : '')
+                          setRoomCheckInDate(folio ? format(toZonedTime(new Date(folio.checkInDate), tz), 'yyyy-MM-dd') : '')
+                          setRoomCheckOutDate(folio ? format(toZonedTime(new Date(folio.checkOutDate), tz), 'yyyy-MM-dd') : '')
                           setIsAddRoomDialogOpen(true)
                         }}
                       >
@@ -1485,11 +1518,12 @@ export default function BookingDetailPage() {
 
                   <div className="space-y-3">
                     {assignments.map((a) => {
+                      const tz = property?.timezone || 'UTC'
                       const prevSwitch = assignments.find((prev) => {
                         if (prev.id === a.id) return false
                         if (!prev.checkOutDate || !a.checkInDate) return false
-                        const prevCheckOutVal = format(new Date(prev.checkOutDate), 'yyyy-MM-dd')
-                        const aCheckInVal = format(new Date(a.checkInDate), 'yyyy-MM-dd')
+                        const prevCheckOutVal = format(toZonedTime(new Date(prev.checkOutDate), tz), 'yyyy-MM-dd')
+                        const aCheckInVal = format(toZonedTime(new Date(a.checkInDate), tz), 'yyyy-MM-dd')
                         return prevCheckOutVal === aCheckInVal
                       })
 
@@ -1502,7 +1536,7 @@ export default function BookingDetailPage() {
                             <div className="flex flex-col">
                               <span className="font-black text-slate-700">{a.RoomType?.name}</span>
                               <span className="text-[10px] font-bold text-slate-400">
-                                Timeline: {format(new Date(a.checkInDate || folio?.checkInDate || ''), 'dd MMM yyyy')} - {format(new Date(a.checkOutDate || folio?.checkOutDate || ''), 'dd MMM yyyy')}
+                                Timeline: {format(toZonedTime(new Date(a.checkInDate || folio?.checkInDate || ''), property?.timezone || 'UTC'), 'dd MMM yyyy')} - {format(toZonedTime(new Date(a.checkOutDate || folio?.checkOutDate || ''), property?.timezone || 'UTC'), 'dd MMM yyyy')}
                               </span>
                             </div>
                           </div>
@@ -1525,9 +1559,10 @@ export default function BookingDetailPage() {
                                 onClick={() => {
                                   setRoomToSwitch(a)
                                   setSelectedRoomId('')
-                                  const todayStr = format(new Date(), 'yyyy-MM-dd')
-                                  const checkInVal = a.checkInDate ? format(new Date(a.checkInDate), 'yyyy-MM-dd') : (folio ? format(new Date(folio.checkInDate), 'yyyy-MM-dd') : todayStr)
-                                  const checkOutVal = a.checkOutDate ? format(new Date(a.checkOutDate), 'yyyy-MM-dd') : (folio ? format(new Date(folio.checkOutDate), 'yyyy-MM-dd') : todayStr)
+                                  const tz = property?.timezone || 'UTC'
+                                  const todayStr = format(toZonedTime(new Date(), tz), 'yyyy-MM-dd')
+                                  const checkInVal = a.checkInDate ? format(toZonedTime(new Date(a.checkInDate), tz), 'yyyy-MM-dd') : (folio ? format(toZonedTime(new Date(folio.checkInDate), tz), 'yyyy-MM-dd') : todayStr)
+                                  const checkOutVal = a.checkOutDate ? format(toZonedTime(new Date(a.checkOutDate), tz), 'yyyy-MM-dd') : (folio ? format(toZonedTime(new Date(folio.checkOutDate), tz), 'yyyy-MM-dd') : todayStr)
                                   if (todayStr >= checkInVal && todayStr <= checkOutVal) {
                                     setSwitchDate(todayStr)
                                   } else {

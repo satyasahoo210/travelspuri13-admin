@@ -15,7 +15,7 @@ import { addDays, format, isWithinInterval, startOfDay } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BedDouble, Calendar, Info, Loader2, Plus, Save, TrendingUp, Users } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type RoomType = Tables<'RoomType'>;
 type Room = Tables<'Room'>;
@@ -30,6 +30,28 @@ export default function InventoryPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const supabase = createClient();
   const [isLoading, setIsLoading] = useState(true);
+
+  // Date Range State
+  const [startDate, setStartDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState<string>(format(addDays(new Date(), 13), 'yyyy-MM-dd'));
+
+  // Refs for scroll synchronization
+  const leftTableRef = useRef<HTMLDivElement>(null);
+  const rightTableRef = useRef<HTMLDivElement>(null);
+
+  const handleLeftScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (rightTableRef.current && rightTableRef.current.scrollTop !== target.scrollTop) {
+      rightTableRef.current.scrollTop = target.scrollTop;
+    }
+  };
+
+  const handleRightScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (leftTableRef.current && leftTableRef.current.scrollTop !== target.scrollTop) {
+      leftTableRef.current.scrollTop = target.scrollTop;
+    }
+  };
 
   // Form State
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -106,9 +128,18 @@ export default function InventoryPage() {
     }
   };
 
-  const days = useMemo(() =>
-    Array.from({ length: 14 }).map((_, i) => addDays(new Date(), i))
-    , []);
+  const days = useMemo(() => {
+    if (!startDate || !endDate) return [];
+    const start = startOfDay(new Date(startDate));
+    const end = startOfDay(new Date(endDate));
+    if (end < start) return [];
+
+    const diffTime = end.getTime() - start.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+    const count = Math.min(diffDays + 1, 31);
+    return Array.from({ length: count }).map((_, i) => addDays(start, i));
+  }, [startDate, endDate]);
 
   const getAvailability = (roomTypeId: string, date: Date) => {
     const totalRooms = rooms.filter(r => r.roomTypeId === roomTypeId).length;
@@ -218,82 +249,181 @@ export default function InventoryPage() {
         <TabsContent value="grid" className="mt-0">
           <Card className="border-none shadow-2xl rounded-[2.5rem] bg-white/40 backdrop-blur-xl overflow-hidden">
             <CardHeader className="bg-white/80 p-8 border-b border-slate-100">
-              <div className="flex justify-between items-center">
-                <div className="space-y-1">
-                  <CardTitle className="text-xl font-black uppercase tracking-tight text-slate-900">14-Day Projections</CardTitle>
-                  <CardDescription className="text-xs font-bold uppercase tracking-widest text-slate-400">Real-time room blocks by category</CardDescription>
+              <div className="flex flex-col gap-6">
+                <div className="flex justify-between items-center">
+                  <div className="space-y-1">
+                    <CardTitle className="text-xl font-black uppercase tracking-tight text-slate-900">
+                      {days.length}-Day Projections
+                    </CardTitle>
+                    <CardDescription className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                      Real-time room blocks by category
+                    </CardDescription>
+                  </div>
+                  <Badge className="bg-emerald-500/10 text-emerald-600 border-none px-4 py-1.5 rounded-full font-black uppercase text-[9px] tracking-widest shrink-0">
+                    Live Sync Enabled
+                  </Badge>
                 </div>
-                <Badge className="bg-emerald-500/10 text-emerald-600 border-none px-4 py-1.5 rounded-full font-black uppercase text-[9px] tracking-widest">Live Sync Enabled</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto w-full max-w-full">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50/50">
-                      <th className="p-8 text-left font-black uppercase tracking-widest text-[10px] text-slate-400 border-b border-r border-slate-100 min-w-[180px] sm:min-w-[220px] sticky left-0 z-20 bg-slate-50/95 backdrop-blur-md shadow-[4px_0_12px_rgba(0,0,0,0.02)]">Room Category</th>
-                      {days.map((day, index) => (
-                        <th 
-                          key={day.toISOString()} 
+
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pt-4 border-t border-slate-100/60">
+                  <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto">
+                    <div className="flex flex-col gap-1.5 min-w-[140px]">
+                      <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-1">Start Date</Label>
+                      <Input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => {
+                          setStartDate(e.target.value);
+                          setEndDate(e.target.value);
+                        }}
+                        className="h-10 rounded-xl bg-slate-50 border-none font-bold text-xs shadow-inner"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5 min-w-[140px]">
+                      <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-1">End Date</Label>
+                      <Input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="h-10 rounded-xl bg-slate-50 border-none font-bold text-xs shadow-inner"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-2 lg:pt-0 w-full lg:w-auto justify-start lg:justify-end">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-2 block w-full lg:w-auto">Presets:</span>
+                    {([
+                      { label: 'Today', days: 1 },
+                      { label: '7 Days', days: 7 },
+                      { label: '14 Days', days: 14 },
+                      { label: '30 Days', days: 30 },
+                    ] as { label: string; days: number }[]).map((preset) => {
+                      const isActive = (() => {
+                        const start = new Date(startDate);
+                        const end = new Date(endDate);
+                        const diffTime = end.getTime() - start.getTime();
+                        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                        return diffDays === preset.days && format(start, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+                      })();
+
+                      return (
+                        <Button
+                          key={preset.label}
+                          type="button"
+                          variant={isActive ? 'default' : 'outline'}
+                          onClick={() => {
+                            const today = new Date();
+                            setStartDate(format(today, 'yyyy-MM-dd'));
+                            setEndDate(format(addDays(today, preset.days - 1), 'yyyy-MM-dd'));
+                          }}
                           className={cn(
-                            "p-4 text-center border-b border-slate-100 min-w-[80px]",
-                            !isGridExpanded && index > 1 ? "hidden md:table-cell" : ""
+                            "h-9 px-4 rounded-xl font-black text-[9px] uppercase tracking-wider transition-all",
+                            isActive
+                              ? "bg-slate-900 text-white border-none shadow-md shadow-slate-900/10"
+                              : "border-slate-100 hover:bg-slate-50 text-slate-500"
                           )}
                         >
-                          <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{format(day, 'EEE')}</div>
-                          <div className={cn(
-                            "text-base font-black w-10 h-10 mx-auto flex items-center justify-center rounded-xl",
-                            format(day, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd') ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-slate-900"
-                          )}>
-                            {format(day, 'dd')}
-                          </div>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white/30">
-                    {roomTypes.map(type => (
-                      <tr key={type.id} className="hover:bg-white/80 transition-all group">
-                        <td className="p-4 sm:p-8 border-b border-r border-slate-100 bg-white/95 backdrop-blur-md sticky left-0 z-10 shadow-[4px_0_12px_rgba(0,0,0,0.02)] group-hover:bg-slate-50/95 transition-colors">
-                          <div className="font-black text-slate-900 tracking-tight text-base group-hover:text-primary transition-colors">{type.name}</div>
-                          <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">Base Rate: ₹{Number(type.defaultPrice).toLocaleString()}</div>
-                        </td>
-                        {days.map((day, index) => {
-                          const avail = getAvailability(type.id, day);
-                          const total = rooms.filter(r => r.roomTypeId === type.id).length;
-
-                          return (
-                            <td 
-                              key={day.toISOString()} 
-                              className={cn(
-                                "p-4 border-b border-slate-100 text-center",
-                                !isGridExpanded && index > 1 ? "hidden md:table-cell" : ""
-                              )}
-                            >
-                              <motion.div
-                                initial={false}
-                                animate={{ scale: [0.95, 1], opacity: [0, 1] }}
-                                className={cn(
-                                  "w-12 h-12 mx-auto rounded-2xl flex items-center justify-center text-sm font-black transition-all shadow-sm",
-                                  avail <= 0
-                                    ? "bg-slate-900 text-white border-none"
-                                    : avail <= 2
-                                      ? "bg-amber-100 text-amber-700 border border-amber-200"
-                                      : "bg-white text-emerald-600 border border-slate-100 group-hover:border-primary/20"
-                                )}>
-                                {avail}
-                              </motion.div>
-                            </td>
-                          );
-                        })}
+                          {preset.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0 max-w-[93vw] md:max-w-[80vw]">
+              <div className="flex w-full overflow-hidden">
+                {/* Left Table: Room Category (Fixed first column) */}
+                <div
+                  ref={leftTableRef}
+                  onScroll={handleLeftScroll}
+                  className="overflow-y-auto max-h-[calc(100vh-340px)] shrink-0 min-w-[180px] sm:min-w-[220px] bg-white border-r border-slate-100 shadow-[4px_0_12px_rgba(0,0,0,0.02)] scrollbar-none"
+                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                >
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/50 h-[88px] sticky top-0 z-30 bg-slate-50/95 backdrop-blur-md">
+                        <th className="p-4 sm:p-8 text-left font-black uppercase tracking-widest text-[10px] text-slate-400 border-b border-slate-100">Room Category</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="bg-white/30">
+                      {roomTypes.map(type => (
+                        <tr key={type.id} className="hover:bg-slate-50/50 transition-all h-[96px]">
+                          <td className="p-4 border-b border-slate-100 bg-white max-w-20 md:max-w-full">
+                            <div className="font-black text-slate-900 tracking-tight text-base">{type.name}</div>
+                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">Base Rate: ₹{Number(type.defaultPrice).toLocaleString()}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Right Table: Scrollable Calendar Grid */}
+                <div
+                  ref={rightTableRef}
+                  onScroll={handleRightScroll}
+                  className="flex-1 overflow-auto max-h-[calc(100vh-340px)]"
+                >
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/50 h-[88px] sticky top-0 z-30 bg-slate-50/95 backdrop-blur-md">
+                        {days.map((day, index) => (
+                          <th
+                            key={day.toISOString()}
+                            className={cn(
+                              "p-4 text-center border-b border-slate-100 min-w-[80px]",
+                              !isGridExpanded && index > 1 ? "hidden md:table-cell" : ""
+                            )}
+                          >
+                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{format(day, 'EEE')}</div>
+                            <div className={cn(
+                              "text-base font-black w-10 h-10 mx-auto flex items-center justify-center rounded-xl",
+                              format(day, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd') ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-slate-900"
+                            )}>
+                              {format(day, 'dd')}
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white/30">
+                      {roomTypes.map(type => (
+                        <tr key={type.id} className="hover:bg-white/80 transition-all h-[96px] group">
+                          {days.map((day, index) => {
+                            const avail = getAvailability(type.id, day);
+                            return (
+                              <td
+                                key={day.toISOString()}
+                                className={cn(
+                                  "p-4 border-b border-slate-100 text-center",
+                                  !isGridExpanded && index > 1 ? "hidden md:table-cell" : ""
+                                )}
+                              >
+                                <motion.div
+                                  initial={false}
+                                  animate={{ scale: [0.95, 1], opacity: [0, 1] }}
+                                  className={cn(
+                                    "w-12 h-12 mx-auto rounded-2xl flex items-center justify-center text-sm font-black transition-all shadow-sm",
+                                    avail <= 0
+                                      ? "bg-slate-900 text-white border-none"
+                                      : avail <= 2
+                                        ? "bg-amber-100 text-amber-700 border border-amber-200"
+                                        : "bg-white text-emerald-600 border border-slate-100 group-hover:border-primary/20"
+                                  )}>
+                                  {avail}
+                                </motion.div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
               <div className="p-2 border-t border-slate-100 md:hidden flex justify-center bg-slate-50/50">
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   onClick={() => setIsGridExpanded(!isGridExpanded)}
                   className="font-black text-[10px] uppercase tracking-widest text-slate-400 hover:text-primary transition-colors h-10"
                 >

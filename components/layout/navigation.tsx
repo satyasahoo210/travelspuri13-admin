@@ -15,6 +15,7 @@ import {
   RefreshCcw,
   Settings2,
   ShieldAlert,
+  Receipt,
   TrendingUp,
   Users,
 } from 'lucide-react'
@@ -29,6 +30,7 @@ const baseNavItems = [
   { label: 'Rooms', href: '/rooms', icon: DoorOpen, showInBottomNav: false },
   { label: 'Inventory', href: '/inventory', icon: BedDouble, showInBottomNav: true },
   { label: 'Housekeeping', href: '/housekeeping', icon: RefreshCcw, showInBottomNav: true },
+  { label: 'Expenses', href: '/expenses', icon: Receipt, showInBottomNav: false },
   { label: 'Rates', href: '/rates', icon: TrendingUp, showInBottomNav: false },
   { label: 'Reports', href: '/reports', icon: BarChart3, showInBottomNav: false },
   { label: 'Messages', href: '/messages', icon: MessageSquare, showInBottomNav: false },
