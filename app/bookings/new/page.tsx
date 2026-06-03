@@ -16,14 +16,14 @@ export default function NewBookingPage() {
 
   const getDefaultCheckInTime = () => {
     const propCheckInTime = currentProperty?.settings?.checkinTime
-      ? `${currentProperty.settings.checkinTime}:00`
+      ? `${currentProperty.settings.checkinTime}`
       : (currentProperty?.checkInTime || '07:00:00')
     return formatInTimeZone(parse(propCheckInTime, formatString, new Date()), currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'HH:mm`);
   }
 
   const getDefaultCheckOutTime = () => {
     const propCheckOutTime = currentProperty?.settings?.checkoutTime
-      ? `${currentProperty.settings.checkoutTime}:00`
+      ? `${currentProperty.settings.checkoutTime}`
       : (currentProperty?.checkOutTime || '07:00:00')
     return formatInTimeZone(parse(propCheckOutTime, formatString, new Date()), currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'HH:mm`);
   }
