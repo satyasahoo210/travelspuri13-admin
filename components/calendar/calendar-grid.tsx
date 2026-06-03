@@ -73,14 +73,14 @@ export function CalendarGrid({
 
   const defaultCheckInTime = useMemo(() => {
     const propCheckInTime = currentProperty?.settings?.checkinTime
-      ? `${currentProperty.settings.checkinTime}:00`
+      ? `${currentProperty.settings.checkinTime}`
       : (currentProperty?.checkInTime || '07:00:00')
     return propCheckInTime;
   }, [currentProperty])
 
   const defaultCheckOutTime = useMemo(() => {
     const propCheckOutTime = currentProperty?.settings?.checkoutTime
-      ? `${currentProperty.settings.checkoutTime}:00`
+      ? `${currentProperty.settings.checkoutTime}`
       : (currentProperty?.checkOutTime || '07:00:00')
     return propCheckOutTime;
   }, [currentProperty])
