@@ -1828,9 +1828,10 @@ export default function BookingDetailPage() {
                     .filter((r) => r.status === 'AVAILABLE' && !assignments.some((a) => a.roomId === r.id))
                     .map((r) => ({ value: r.id, label: `Room ${r.roomNumber} (${r.RoomType?.name})  - ₹${r.RoomType?.defaultPrice}/night` }))
                 }
+                value={selectedRoomId}
                 onChange={(val) => setSelectedRoomId(val || '')}
                 placeholder="Search new room"
-                className="h-14 rounded-2xl bg-slate-50 border-slate-100 font-bold"
+                className="rounded-2xl bg-slate-50 border-slate-100 font-bold"
               />
             </div>
 
