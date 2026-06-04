@@ -31,7 +31,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 
 RUN addgroup -g 1001 nodejs
-RUN adduser -D -u 1001 nextjs
+RUN adduser -D -u 1003 nextjs
 
 COPY --from=builder /app/public ./public
 
