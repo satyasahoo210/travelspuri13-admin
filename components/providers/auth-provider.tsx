@@ -30,54 +30,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
 
   useEffect(() => {
-    const fetchUser = async (sessionUser: Pick<PMSUser, 'id'>) => {
-      if (!sessionUser) {
-        setUser(null)
-        setLoading(false)
-        return
+    const checkSession = async () => {
+      if (typeof window === 'undefined') return;
+
+      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+      const cachedUserStr = localStorage.getItem(STORAGE_KEYS.USER);
+
+      if (!token || !cachedUserStr) {
+        setUser(null);
+        setLoading(false);
+        return;
       }
 
-      // Fetch profile data from our User table
-      const { data, error } = await supabase
-        .from('User')
-        .select('*')
-        .eq('id', sessionUser.id)
-        .single()
+      try {
+        // Set initial fast load state from cache
+        const cachedUser = JSON.parse(cachedUserStr);
+        setUser(cachedUser);
 
-      if (data && !error) {
-        const userData = {
-          id: data.id,
-          email: data.email,
-          name: data.name,
-          role: data.role,
-          tenantId: data.tenantId,
+        // Verify token & get fresh profile in the background
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+        const res = await fetch(`${apiUrl}/auth/profile`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (!res.ok) {
+          throw new Error('Session expired');
         }
-        setUser(userData)
-        // Store tenantId for legacy components if needed, though Supabase is preferred
-        localStorage.setItem(STORAGE_KEYS.TENANT_ID, data.tenantId)
-      }
-      setLoading(false)
-    }
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        fetchUser(session.user)
-      } else {
-        setUser(null)
-        setLoading(false)
+        const freshUser = await res.json();
+        setUser(freshUser);
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(freshUser));
+        localStorage.setItem(STORAGE_KEYS.TENANT_ID, freshUser.tenantId);
+      } catch (err) {
+        console.error('Session validation failed:', err);
+        // Clear expired credentials
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        localStorage.removeItem(STORAGE_KEYS.TENANT_ID);
+        localStorage.removeItem(STORAGE_KEYS.PROPERTY_ID);
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-    })
+    };
 
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [supabase])
+    checkSession();
+  }, []);
 
   const logout = async () => {
-    await supabase.auth.signOut()
+    localStorage.removeItem(STORAGE_KEYS.TOKEN)
+    localStorage.removeItem(STORAGE_KEYS.USER)
     localStorage.removeItem(STORAGE_KEYS.TENANT_ID)
     localStorage.removeItem(STORAGE_KEYS.PROPERTY_ID)
     setUser(null)
