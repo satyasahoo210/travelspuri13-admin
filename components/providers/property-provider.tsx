@@ -2,21 +2,53 @@
 
 import { useAuth } from '@/components/providers/auth-provider';
 import { Tables } from '@/database.types';
-import { createClient } from '@/lib/utils/supabase/client';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useApolloClient } from '@apollo/client/react';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-type Property = Tables<'Property'> & {
-  settings: {
-    defaultTaxEnabled: boolean;
-    taxAmount?: number;
-    checkinTime: string;
-    checkoutTime: string;
-    gstin?: string;
-    pan?: string;
-    fssai?: string;
-    [key: string]: any;
-  } | null;
+interface Property {
+  id: string;
+  name: string;
+  address: string;
+  timezone: string;
+  tenantId: string;
+  taxPercentage: number | null;
+  logoUrl: string | null;
+  phone: string | null;
+  email: string | null;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  settings: string | null;
+  photos: string[];
+  createdAt: string | null;
+  updatedAt: string | null;
 }
+
+interface GetPropertiesData {
+  properties: Property[];
+}
+
+const GET_PROPERTIES: TypedDocumentNode<GetPropertiesData> = gql`
+  query GetProperties {
+    properties {
+      id
+      name
+      address
+      timezone
+      tenantId
+      taxPercentage
+      logoUrl
+      phone
+      email
+      checkInTime
+      checkOutTime
+      settings
+      photos
+      createdAt
+      updatedAt
+    }
+  }
+`;
 
 interface PropertyContextType {
   currentProperty: Property | null;
@@ -29,7 +61,7 @@ const PropertyContext = createContext<PropertyContextType | undefined>(undefined
 
 export function PropertyProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const supabase = createClient();
+  const client = useApolloClient();
   const [currentProperty, setCurrentProperty] = useState<Property | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,35 +75,37 @@ export function PropertyProvider({ children }: { children: React.ReactNode }) {
       }
 
       setLoading(true);
-      const { data, error } = await supabase
-        .from('Property')
-        .select('*')
-        .eq('tenantId', user.tenantId)
-        .order('name');
+      try {
+        const { data } = await client.query({
+          query: GET_PROPERTIES,
+        });
 
-      if (!error && data) {
-        // Cast settings to expected structure
-        const formattedData = data.map(p => ({
-          ...p,
-          settings: p.settings as Property['settings']
-        }));
+        if (data && data.properties) {
+          const formattedData = data.properties.map((p: any) => ({
+            ...p,
+            settings: p.settings ? JSON.parse(p.settings) : null,
+          }));
 
-        setProperties(formattedData);
-        
-        // Restore selected property or default to first
-        const savedId = localStorage.getItem('pms_property_id');
-        const property = formattedData.find(p => p.id === savedId) || formattedData[0];
-        
-        if (property) {
-          setCurrentProperty(property);
-          localStorage.setItem('pms_property_id', property.id);
+          setProperties(formattedData);
+
+          // Restore selected property or default to first
+          const savedId = localStorage.getItem('pms_property_id');
+          const property = formattedData.find((p: any) => p.id === savedId) || formattedData[0];
+
+          if (property) {
+            setCurrentProperty(property);
+            localStorage.setItem('pms_property_id', property.id);
+          }
         }
+      } catch (error) {
+        console.error('Failed to fetch properties via GraphQL:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     fetchProperties();
-  }, [user, supabase]);
+  }, [user, client]);
 
   const setProperty = (id: string) => {
     const property = properties.find(p => p.id === id);

@@ -48,8 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(cachedUser);
 
         // Verify token & get fresh profile in the background
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-        const res = await fetch(`${apiUrl}/auth/profile`, {
+        const res = await fetch(`/api/v1/auth/profile`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },

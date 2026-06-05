@@ -1,6 +1,9 @@
 import { bookingApi } from '../api/bookings';
-import { guestApi, paymentApi, roomApi, roomTypeApi } from '../api/entities';
-import { Booking, db, getLastSyncTimestamp, Guest, Payment, Room, setLastSyncTimestamp } from '../db/dexie';
+import { guestApi } from '../api/guests';
+import { paymentApi } from '../api/payments';
+import { roomApi } from '../api/rooms';
+import { roomTypeApi } from '../api/room-types';
+import { db, getLastSyncTimestamp, setLastSyncTimestamp } from '../db/dexie';
 
 const ENTITIES = ['bookings', 'rooms', 'guests', 'payments', 'roomTypes'] as const;
 
@@ -55,7 +58,13 @@ export class SyncManager {
   }
 
   private static async pullRemoteChanges() {
+    const propertyId = typeof window !== 'undefined' ? localStorage.getItem('pms_property_id') : null;
+
     for (const entity of ENTITIES) {
+      if (!propertyId && entity !== 'guests') {
+        continue;
+      }
+
       const lastSynced = await getLastSyncTimestamp(entity);
       let api;
       switch (entity) {
@@ -67,8 +76,13 @@ export class SyncManager {
       }
 
       if (api) {
-        const { data, timestamp } = await api.sync(lastSynced);
+        const { data, timestamp } = await api.sync(lastSynced, propertyId || '');
         
+        if (!data || !timestamp) {
+          console.error(`Failed to sync ${entity}`);
+          continue;
+        }
+
         // Batch merge into Dexie
         await db.transaction('rw', db[entity], async () => {
           for (const item of data) {
