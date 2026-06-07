@@ -1,30 +1,32 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { useProperty } from '@/components/providers/property-provider';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { 
-  Hotel, 
-  Clock, 
-  FileText, 
-  Save, 
-  ShieldCheck, 
-  Building2,
-  Receipt,
-  Fingerprint
-} from 'lucide-react';
+import { Clock, Fingerprint, Receipt, Save, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { createClient } from '@/lib/utils/supabase/client';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useMutation } from '@apollo/client/react';
+
+const UPDATE_PROPERTY_SETTINGS: TypedDocumentNode<{ updateProperty: any }, { id: string, input: any }> = gql`
+  mutation UpdateProperty($id: ID!, $input: UpdatePropertyInput!) {
+    updateProperty(id: $id, input: $input) {
+      id
+      settings
+    }
+  }
+`;
 
 export default function SettingsPage() {
   const { currentProperty } = useProperty();
   const [settings, setSettings] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const supabase = createClient();
+
+  const [updateProperty] = useMutation(UPDATE_PROPERTY_SETTINGS);
 
   useEffect(() => {
     if (currentProperty) {
@@ -46,22 +48,25 @@ export default function SettingsPage() {
 
     setIsSaving(true);
     
-    const { error } = await supabase
-      .from('Property')
-      .update({
-        settings: settings
-      })
-      .eq('id', currentProperty.id);
+    try {
+      await updateProperty({
+        variables: {
+          id: currentProperty.id,
+          input: {
+            settings: JSON.stringify(settings)
+          }
+        }
+      });
 
-    if (error) {
-      console.error('Error saving settings:', error);
-      alert('Failed to save settings');
-    } else {
       // Simulate success delay for UI
       setTimeout(() => {
         setIsSaving(false);
         window.location.reload(); // Refresh to update context
       }, 500);
+    } catch (err) {
+      console.error('Error saving settings:', err);
+      alert('Failed to save settings');
+      setIsSaving(false);
     }
   };
 
@@ -119,7 +124,7 @@ export default function SettingsPage() {
                     <Input 
                       type="number"
                       value={settings.taxAmount}
-                      onChange={e => setSettings({...settings, taxAmount: parseFloat(e.target.value)})}
+                      onChange={e => setSettings({...settings, taxAmount: parseFloat(e.target.value) || 0})}
                       className="h-12 rounded-2xl bg-slate-50 border-slate-100 font-bold"
                       disabled={!settings.defaultTaxEnabled}
                     />

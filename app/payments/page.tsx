@@ -1,63 +1,86 @@
 'use client';
 
 import { useProperty } from '@/components/providers/property-provider';
-import { Badge } from "@/components/ui/badge";
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import { createClient } from '@/lib/utils/supabase/client';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { endOfMonth, format, startOfMonth } from 'date-fns';
 import { motion } from 'framer-motion';
 import { CreditCard, FileText, IndianRupee, Loader2, Search } from "lucide-react";
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery } from '@apollo/client/react';
+
+interface Payment {
+  id: string;
+  amount: number;
+  method: string;
+  status: string;
+  createdAt: string;
+  notes?: string | null;
+  bookingId: string;
+  Booking?: {
+    id: string;
+    Guest?: {
+      id: string;
+      name: string;
+    } | null;
+  } | null;
+}
+
+const GET_PAYMENTS: TypedDocumentNode<{ payments: Payment[] }> = gql`
+  query GetPayments {
+    payments {
+      id
+      amount
+      method
+      status
+      createdAt
+      notes
+      bookingId
+      Booking {
+        id
+        Guest {
+          id
+          name
+        }
+      }
+    }
+  }
+`;
 
 export default function PaymentsPage() {
   const { currentProperty } = useProperty();
-  const supabase = createClient();
-  const [payments, setPayments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [monthlyRevenue, setMonthlyRevenue] = useState(0);
 
-  const fetchPayments = async () => {
-    if (!currentProperty) return;
-    setLoading(true);
+  const { data, loading } = useQuery(GET_PAYMENTS, {
+    skip: !currentProperty,
+  });
 
-    const start = startOfMonth(new Date()).toISOString();
-    const end = endOfMonth(new Date()).toISOString();
+  const payments = data?.payments || [];
 
-    const [paymentsRes, revenueRes] = await Promise.all([
-      supabase
-        .from('Payment')
-        .select('*, Booking(id, guestId, Guest(name))')
-        .eq('tenantId', currentProperty.tenantId)
-        .order('createdAt', { ascending: false }),
-      supabase
-        .from('Payment')
-        .select('amount')
-        .eq('tenantId', currentProperty.tenantId)
-        .gte('createdAt', start)
-        .lte('createdAt', end)
-    ]);
+  const monthlyRevenue = useMemo(() => {
+    const start = startOfMonth(new Date());
+    const end = endOfMonth(new Date());
+    return payments
+      .filter(p => {
+        const date = new Date(p.createdAt);
+        return date >= start && date <= end;
+      })
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+  }, [payments]);
 
-    setPayments(paymentsRes.data || []);
-    const total = revenueRes.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-    setMonthlyRevenue(total);
-    setLoading(false);
-  };
+  const filteredPayments = useMemo(() => {
+    return payments.filter(p => 
+      p.id.toLowerCase().includes(search.toLowerCase()) ||
+      (p.Booking?.Guest?.name || 'Walk-in Guest').toLowerCase().includes(search.toLowerCase())
+    );
+  }, [payments, search]);
 
-  useEffect(() => {
-    fetchPayments();
-  }, [currentProperty]);
-
-  const filteredPayments = payments.filter(p => 
-    p.id.toLowerCase().includes(search.toLowerCase()) ||
-    p.Booking?.Guest?.name.toLowerCase().includes(search.toLowerCase())
-  );
-
-  if (loading) return (
+  if (loading && !payments.length) return (
     <div className="h-[60vh] flex flex-col items-center justify-center space-y-4">
       <Loader2 className="h-8 w-8 animate-spin text-primary" />
       <p className="text-muted-foreground font-bold uppercase tracking-widest text-[10px]">Processing Ledger...</p>
@@ -73,7 +96,7 @@ export default function PaymentsPage() {
         </div>
         <div className="flex items-center gap-3">
           <Card className="border-none shadow-xl rounded-[2rem] bg-slate-900 text-white p-6 flex items-center gap-5 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full -mr-12 -mt-12" />
+            <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full -mr-16 -mt-16" />
             <div className="p-4 bg-white/10 rounded-2xl backdrop-blur-md">
               <IndianRupee className="h-6 w-6 text-primary" />
             </div>

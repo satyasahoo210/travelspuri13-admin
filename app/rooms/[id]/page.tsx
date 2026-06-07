@@ -4,7 +4,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { createClient } from '@/lib/utils/supabase/client'
+import { useProperty } from '@/components/providers/property-provider'
+import { gql, TypedDocumentNode } from '@apollo/client'
+import { useQuery, useMutation } from '@apollo/client/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft,
@@ -29,6 +31,98 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
+interface GqlRoomDetail {
+  id: string;
+  roomNumber: string;
+  status: string;
+  roomTypeId: string;
+  housekeepingStatus: string;
+  priorityCleaning: boolean;
+  RoomType?: {
+    id: string;
+    name: string;
+    capacity: number;
+    defaultPrice?: number | null;
+    propertyId: string;
+    photos: string[];
+  } | null;
+}
+
+interface GetRoomsForDetailData {
+  rooms: GqlRoomDetail[];
+}
+
+interface GetRoomsForDetailVariables {
+  propertyId: string;
+}
+
+interface UpdateRoomStatusMutationData {
+  updateRoom: {
+    id: string;
+    status: string;
+  };
+}
+
+interface UpdateRoomStatusMutationVariables {
+  id: string;
+  input: {
+    status: string;
+  };
+}
+
+interface UpdateRoomTypePriceMutationData {
+  updateRoomType: {
+    id: string;
+    defaultPrice?: number | null;
+  };
+}
+
+interface UpdateRoomTypePriceMutationVariables {
+  id: string;
+  input: {
+    defaultPrice: number;
+  };
+}
+
+const GET_ROOMS_FOR_DETAIL: TypedDocumentNode<GetRoomsForDetailData, GetRoomsForDetailVariables> = gql`
+  query GetRoomsForDetail($propertyId: String!) {
+    rooms(propertyId: $propertyId) {
+      id
+      roomNumber
+      status
+      roomTypeId
+      housekeepingStatus
+      priorityCleaning
+      RoomType {
+        id
+        name
+        capacity
+        defaultPrice
+        propertyId
+        photos
+      }
+    }
+  }
+`;
+
+const UPDATE_ROOM_STATUS: TypedDocumentNode<UpdateRoomStatusMutationData, UpdateRoomStatusMutationVariables> = gql`
+  mutation UpdateRoomStatusForDetail($id: ID!, $input: UpdateRoomInput!) {
+    updateRoom(id: $id, input: $input) {
+      id
+      status
+    }
+  }
+`;
+
+const UPDATE_ROOM_TYPE_PRICE: TypedDocumentNode<UpdateRoomTypePriceMutationData, UpdateRoomTypePriceMutationVariables> = gql`
+  mutation UpdateRoomTypePriceForDetail($id: ID!, $input: UpdateRoomTypeInput!) {
+    updateRoomType(id: $id, input: $input) {
+      id
+      defaultPrice
+    }
+  }
+`;
+
 const statusOptions = [
   { value: 'AVAILABLE', label: 'Available', icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100', activeBg: 'bg-emerald-500 text-white' },
   { value: 'MAINTENANCE', label: 'Maintenance', icon: Construction, color: 'text-rose-500', bg: 'bg-rose-50', border: 'border-rose-100', activeBg: 'bg-rose-500 text-white' },
@@ -37,58 +131,46 @@ const statusOptions = [
 export default function RoomDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const supabase = createClient()
   const roomId = params.id as string
+  const { currentProperty } = useProperty()
 
-  const [room, setRoom] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [updatingPrice, setUpdatingPrice] = useState(false)
   const [editPriceMode, setEditPriceMode] = useState(false)
   const [newPrice, setNewPrice] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const [activeImage, setActiveImage] = useState(0)
 
-  const fetchRoomDetails = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const { data, error: fetchErr } = await supabase
-        .from('Room')
-        .select('*, RoomType(*, Property(*))')
-        .eq('id', roomId)
-        .single()
+  const { data: qData, loading, error: qError, refetch } = useQuery(GET_ROOMS_FOR_DETAIL, {
+    variables: { propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id,
+  });
 
-      if (fetchErr) throw fetchErr
-      setRoom(data)
-      if (data?.RoomType) {
-        setNewPrice(data.RoomType.defaultPrice?.toString() || '')
-      }
-    } catch (err: any) {
-      console.error(err)
-      setError(err.message || 'Failed to fetch room details')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const [updateRoomStatusMut] = useMutation(UPDATE_ROOM_STATUS)
+  const [updateRoomTypePriceMut] = useMutation(UPDATE_ROOM_TYPE_PRICE)
+
+  const rooms = qData?.rooms || []
+  const room = rooms.find((r: GqlRoomDetail) => r.id === roomId)
+  const error = qError ? qError.message : (!loading && !room ? 'Room not found' : null)
 
   useEffect(() => {
-    if (roomId) {
-      fetchRoomDetails()
+    if (room?.RoomType) {
+      setNewPrice(room.RoomType.defaultPrice?.toString() || '')
     }
-  }, [roomId])
+  }, [room])
 
-  const handleUpdateStatus = async (newStatus: any) => {
+  const handleUpdateStatus = async (newStatus: string) => {
     if (!room || room.status === newStatus) return
     setUpdatingStatus(true)
     try {
-      const { error: updateErr } = await supabase
-        .from('Room')
-        .update({ status: newStatus })
-        .eq('id', roomId)
-
-      if (updateErr) throw updateErr
-      setRoom((prev: any) => ({ ...prev, status: newStatus }))
+      await updateRoomStatusMut({
+        variables: {
+          id: roomId,
+          input: {
+            status: newStatus as any
+          }
+        }
+      })
+      await refetch()
     } catch (err: any) {
       console.error(err)
       alert(err.message || 'Failed to update room status')
@@ -106,20 +188,15 @@ export default function RoomDetailPage() {
     setUpdatingPrice(true)
     try {
       const priceVal = parseFloat(newPrice)
-      const { error: updateErr } = await supabase
-        .from('RoomType')
-        .update({ defaultPrice: priceVal })
-        .eq('id', room.RoomType.id)
-
-      if (updateErr) throw updateErr
-
-      setRoom((prev: any) => ({
-        ...prev,
-        RoomType: {
-          ...prev.RoomType,
-          defaultPrice: priceVal
+      await updateRoomTypePriceMut({
+        variables: {
+          id: room.RoomType.id,
+          input: {
+            defaultPrice: priceVal
+          }
         }
-      }))
+      })
+      await refetch()
       setEditPriceMode(false)
     } catch (err: any) {
       console.error(err)
@@ -153,16 +230,16 @@ export default function RoomDetailPage() {
     )
   }
 
-  const roomType = room.RoomType || {}
-  const property = roomType.Property || {}
-  const photos = roomType.photos || []
+  const roomType = room?.RoomType || null
+  const property = currentProperty || null
+  const photos = roomType?.photos || []
   const hasPhotos = photos.length > 0
-  const activeStatusConfig = statusOptions.find(opt => opt.value === room.status) || statusOptions[0]
-
+  const activeStatusConfig = statusOptions.find(opt => opt.value === room?.status) || statusOptions[0]
+ 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20 p-4 md:p-10 selection:bg-primary/20">
       <div className="max-w-6xl mx-auto space-y-8 animate-fade-in">
-
+ 
         {/* Navigation & Header */}
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-6 md:p-8 rounded-[2rem] border border-slate-200 shadow-sm">
           <div className="flex items-center gap-4">
@@ -176,22 +253,22 @@ export default function RoomDetailPage() {
             </Button>
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-heading font-black text-slate-900 tracking-tight leading-none uppercase">Room {room.roomNumber}</h1>
+                <h1 className="text-3xl font-heading font-black text-slate-900 tracking-tight leading-none uppercase">Room {room?.roomNumber}</h1>
                 <Badge className={`font-bold text-[10px] tracking-widest uppercase px-3 py-1 ${activeStatusConfig.bg} ${activeStatusConfig.color} border ${activeStatusConfig.border}`}>
-                  {room.status}
+                  {room?.status}
                 </Badge>
               </div>
               <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mt-1.5 flex items-center gap-1.5">
                 <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <Link href={`/properties/${property.id}`} className="hover:text-primary hover:underline transition-all">
-                  {property.name}
+                <Link href={`/properties/${property?.id}`} className="hover:text-primary hover:underline transition-all">
+                  {property?.name}
                 </Link>
               </p>
             </div>
           </div>
-
+ 
           <div className="flex gap-2">
-            <Link href={`/properties/${property.id}`}>
+            <Link href={`/properties/${property?.id}`}>
               <Button
                 variant="outline"
                 className="rounded-xl border-slate-200 font-black text-xs tracking-widest uppercase h-12 px-6"
@@ -269,7 +346,7 @@ export default function RoomDetailPage() {
                         variant="outline"
                         onClick={() => {
                           setEditPriceMode(false)
-                          setNewPrice(roomType.defaultPrice?.toString() || '')
+                          setNewPrice(roomType?.defaultPrice?.toString() || '')
                         }}
                         disabled={updatingPrice}
                         className="h-12 w-12 rounded-xl border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 p-0"
@@ -282,7 +359,7 @@ export default function RoomDetailPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block leading-none mb-1">Standard Rate</span>
-                      <span className="text-2xl font-heading font-black text-slate-900">₹{roomType.defaultPrice || 0}</span>
+                      <span className="text-2xl font-heading font-black text-slate-900">₹{roomType?.defaultPrice || 0}</span>
                     </div>
                     <Button
                       variant="outline"
@@ -296,28 +373,28 @@ export default function RoomDetailPage() {
               </div>
             </Card>
           </div>
-
+ 
           {/* Room Category Info & Gallery */}
           <div className="lg:col-span-7 space-y-8">
             <Card className="bg-white border-slate-200 rounded-[2.5rem] shadow-sm p-6 md:p-8 space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="font-heading font-black text-slate-900 uppercase tracking-tight text-xl">{roomType.name}</h2>
+                  <h2 className="font-heading font-black text-slate-900 uppercase tracking-tight text-xl">{roomType?.name || 'Standard Room'}</h2>
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Category Specifications</p>
                 </div>
                 <Badge className="bg-slate-100 text-slate-700 font-black text-[10px] tracking-wider uppercase border border-slate-200/50 hover:bg-slate-150 px-3 py-1.5 flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-slate-500" />
-                  Max {roomType.capacity} Guests
+                  Max {roomType?.capacity || 0} Guests
                 </Badge>
               </div>
-
+ 
               {/* Slide */}
               <div className="aspect-video max-h-[360px] rounded-3xl overflow-hidden relative group bg-black border border-slate-200/50">
                 {hasPhotos ? (
                   <>
                     <img
                       src={photos[activeImage]}
-                      alt={roomType.name}
+                      alt={roomType?.name || 'Category Image'}
                       className="w-full h-full object-cover select-none pointer-events-none transition-all duration-700 ease-in-out"
                     />
                     {photos.length > 1 && (

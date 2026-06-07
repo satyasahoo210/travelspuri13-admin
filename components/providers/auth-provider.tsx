@@ -2,7 +2,6 @@
 
 import { Tables } from '@/database.types'
 import { STORAGE_KEYS } from '@/lib/constants'
-import { createClient } from '@/lib/utils/supabase/client'
 import { usePathname, useRouter } from 'next/navigation'
 import React, { createContext, useContext, useEffect, useState } from 'react'
 
@@ -27,7 +26,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
-  const supabase = createClient()
 
   useEffect(() => {
     const checkSession = async () => {

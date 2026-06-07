@@ -34,7 +34,7 @@ import { ArrowRight, Calendar, Home, Phone, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 interface CalendarGridProps {
-  rooms: (Tables<'Room'> & { RoomType: Tables<'RoomType'> })[]
+  rooms: any[]
   bookings: BookingAssignment[]
   startDate?: Date
 }
@@ -168,12 +168,13 @@ export function CalendarGrid({
                 {days.map((day) => {
                   const isStart =
                     rangeStart?.roomId === room.id &&
+                    rangeStart?.date &&
                     isSameDay(rangeStart.date, day)
                   const isInRange =
                     rangeStart?.roomId === room.id &&
-                    day > rangeStart.date &&
+                    rangeStart && day > rangeStart.date &&
                     newBookingData?.roomId === room.id &&
-                    newBookingData.checkOut &&
+                    newBookingData?.checkOut &&
                     day < new Date(newBookingData.checkOut)
 
                   return (

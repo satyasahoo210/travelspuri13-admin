@@ -13,7 +13,6 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { STORAGE_KEYS } from '@/lib/constants'
-import { createClient } from '@/lib/utils/supabase/client'
 import Logo from '@/public/logo_large.svg'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertCircle, Hotel, Loader2, Sparkles } from 'lucide-react'
@@ -26,7 +25,6 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const supabase = createClient()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

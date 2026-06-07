@@ -1,13 +1,12 @@
 'use client';
 
-import { useProperty } from "@/components/providers/property-provider";
+import { useProperty } from '@/components/providers/property-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Enums } from '@/database.types';
+import { createClient } from '@/lib/utils/supabase/client';
 import { cn } from '@/lib/utils';
-import { createClient } from "@/lib/utils/supabase/client";
 import {
   AlertCircle,
   CheckCircle2,
@@ -16,39 +15,87 @@ import {
   MoreVertical,
   RefreshCcw,
   Search,
-  Zap
+  Zap,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
+
+type HousekeepingStatus = 'DIRTY' | 'CLEANING' | 'INSPECTING' | 'READY';
+type RoomStatus = 'AVAILABLE' | 'OCCUPIED' | 'DIRTY' | 'MAINTENANCE';
+
+interface Room {
+  id: string;
+  roomNumber: string;
+  status: RoomStatus;
+  housekeepingStatus: HousekeepingStatus;
+  priorityCleaning: boolean;
+  RoomType?: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+interface RoomsListResponse {
+  rooms: Room[];
+}
+
+const GET_ROOMS_LIST: TypedDocumentNode<RoomsListResponse, { propertyId: string }> = gql`
+  query GetRoomsList($propertyId: String!) {
+    rooms(propertyId: $propertyId) {
+      id
+      roomNumber
+      status
+      housekeepingStatus
+      priorityCleaning
+      RoomType {
+        id
+        name
+      }
+    }
+  }
+`;
+
+const UPDATE_ROOM: TypedDocumentNode<{ updateRoom: Room }, { id: string, input: any }> = gql`
+  mutation UpdateRoom($id: ID!, $input: UpdateRoomInput!) {
+    updateRoom(id: $id, input: $input) {
+      id
+      roomNumber
+      status
+      housekeepingStatus
+      priorityCleaning
+    }
+  }
+`;
 
 const statusColors = {
-  READY: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  CLEANING: 'bg-blue-50 text-blue-700 border-blue-200',
-  INSPECTING: 'bg-purple-50 text-purple-700 border-purple-200',
-  DIRTY: 'bg-amber-50 text-amber-700 border-amber-200',
+  DIRTY: 'bg-amber-50 text-amber-600 border-amber-200',
+  CLEANING: 'bg-blue-50 text-blue-600 border-blue-200',
+  INSPECTING: 'bg-purple-50 text-purple-600 border-purple-200',
+  READY: 'bg-emerald-50 text-emerald-600 border-emerald-200'
 };
 
 export default function HousekeepingPage() {
   const { currentProperty } = useProperty();
   const supabase = createClient();
   const [search, setSearch] = useState('');
-  const [rooms, setRooms] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rooms, setRooms] = useState<Room[]>([]);
 
-  const fetchRooms = async () => {
-    if (!currentProperty) return;
+  const { data: queryData, loading, refetch } = useQuery(GET_ROOMS_LIST, {
+    variables: { propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id,
+  });
 
-    const { data } = await supabase
-      .from('Room')
-      .select('*, RoomType!inner(name, propertyId)')
-      .eq('RoomType.propertyId', currentProperty.id)
-      .order('roomNumber', { ascending: true });
-
-    setRooms(data || []);
-    setLoading(false);
-  };
+  const [updateRoomMutation] = useMutation(UPDATE_ROOM);
 
   useEffect(() => {
-    fetchRooms();
+    if (queryData) {
+      setRooms(queryData.rooms || []);
+    }
+  }, [queryData]);
+
+  useEffect(() => {
+    if (!currentProperty) return;
 
     // Real-time subscription
     const channel = supabase
@@ -58,34 +105,36 @@ export default function HousekeepingPage() {
         schema: 'public',
         table: 'Room'
       }, () => {
-        fetchRooms();
+        refetch();
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentProperty]);
+  }, [currentProperty, refetch]);
 
-  const updateStatus = async (id: string, status: Enums<"HousekeepingStatus">) => {
+  const updateStatus = async (id: string, status: HousekeepingStatus) => {
     // Map housekeeping status to main room status
-    let mainStatus: Enums<"RoomStatus"> = 'DIRTY';
+    let mainStatus: RoomStatus = 'DIRTY';
     if (status === 'READY') mainStatus = 'AVAILABLE';
 
     // Optimistic update
     setRooms(prev => prev.map(r => r.id === id ? { ...r, housekeepingStatus: status, status: mainStatus } : r));
 
-    const { error } = await supabase
-      .from('Room')
-      .update({
-        housekeepingStatus: status,
-        status: mainStatus
-      })
-      .eq('id', id);
-
-    if (error) {
+    try {
+      await updateRoomMutation({
+        variables: {
+          id,
+          input: {
+            housekeepingStatus: status,
+            status: mainStatus
+          }
+        }
+      });
+    } catch (error) {
       console.error('Error updating status:', error);
-      fetchRooms(); // Revert on error
+      refetch(); // Revert on error
     }
   };
 
@@ -93,14 +142,18 @@ export default function HousekeepingPage() {
     // Optimistic update
     setRooms(prev => prev.map(r => r.id === id ? { ...r, priorityCleaning: !current } : r));
 
-    const { error } = await supabase
-      .from('Room')
-      .update({ priorityCleaning: !current })
-      .eq('id', id);
-
-    if (error) {
+    try {
+      await updateRoomMutation({
+        variables: {
+          id,
+          input: {
+            priorityCleaning: !current
+          }
+        }
+      });
+    } catch (error) {
       console.error('Error toggling priority:', error);
-      fetchRooms(); // Revert on error
+      refetch(); // Revert on error
     }
   };
 
@@ -109,7 +162,7 @@ export default function HousekeepingPage() {
     r.RoomType?.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (loading) {
+  if (loading && !rooms.length) {
     return (
       <div className="h-[60vh] flex flex-col items-center justify-center space-y-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

@@ -21,6 +21,8 @@ import {
 } from '@/components/ui/select'
 import { Tables } from '@/database.types'
 import { createClient } from '@/lib/utils/supabase/client'
+import { gql, TypedDocumentNode } from '@apollo/client'
+import { useLazyQuery, useMutation, useQuery } from '@apollo/client/react'
 import { differenceInCalendarDays, differenceInDays, format } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -68,24 +70,88 @@ type EntityType =
   | 'Product'
 type Nullable<T> = T | null
 type DropDownType = {
-  properties: Nullable<
-    Pick<
-      Tables<'Property'>,
-      'id' | 'name' | 'timezone' | 'taxPercentage' | 'checkOutTime' | 'settings'
-    >[]
-  >
-  roomTypes: Nullable<Pick<Tables<'RoomType'>, 'id' | 'name' | 'propertyId'>[]>
-  guests: Nullable<Pick<Tables<'Guest'>, 'id' | 'name'>[]>
-  products: Nullable<Pick<Tables<'Product'>, 'id' | 'name'>[]>
-  rooms: Nullable<
-    (Pick<Tables<'Room'>, 'id' | 'roomNumber'> & {
-      RoomType: Pick<Tables<'RoomType'>, 'name' | 'propertyId' | 'defaultPrice'>
-    })[]
-  >
-  bookings: Nullable<
-    (Pick<Tables<'Booking'>, 'id'> & { Guest: Pick<Tables<'Guest'>, 'name'> })[]
-  >
+  properties: any[] | null
+  roomTypes: any[] | null
+  guests: any[] | null
+  products: any[] | null
+  rooms: any[] | null
+  bookings: any[] | null
 }
+
+const GET_DEV_ENTITIES: TypedDocumentNode<
+  { devEntities: { dataJson: string; count: number } },
+  { entity: string; page: number; limit: number; search?: string | null }
+> = gql`
+  query GetDevEntities($entity: String!, $page: Int!, $limit: Int!, $search: String) {
+    devEntities(entity: $entity, page: $page, limit: $limit, search: $search) {
+      dataJson
+      count
+    }
+  }
+`
+
+const GET_DEV_DROPDOWNS: TypedDocumentNode<
+  {
+    devDropdowns: {
+      properties: string;
+      roomTypes: string;
+      guests: string;
+      products: string;
+      rooms: string;
+      bookings: string;
+    };
+  }
+> = gql`
+  query GetDevDropdowns {
+    devDropdowns {
+      properties
+      roomTypes
+      guests
+      products
+      rooms
+      bookings
+    }
+  }
+`
+
+const DEV_INSERT: TypedDocumentNode<
+  { devInsert: string },
+  { entity: string; dataJson: string }
+> = gql`
+  mutation DevInsert($entity: String!, $dataJson: String!) {
+    devInsert(entity: $entity, dataJson: $dataJson)
+  }
+`
+
+const DEV_UPDATE: TypedDocumentNode<
+  { devUpdate: string },
+  { entity: string; id: string; dataJson: string }
+> = gql`
+  mutation DevUpdate($entity: String!, $id: String!, $dataJson: String!) {
+    devUpdate(entity: $entity, id: $id, dataJson: $dataJson)
+  }
+`
+
+const DEV_DELETE: TypedDocumentNode<
+  { devDelete: string },
+  { entity: string; id: string }
+> = gql`
+  mutation DevDelete($entity: String!, $id: String!) {
+    devDelete(entity: $entity, id: $id)
+  }
+`
+
+const CREATE_USER: TypedDocumentNode<{ createUser: any }, { input: any }> = gql`
+  mutation CreateUser($input: CreateUserInput!) {
+    createUser(input: $input) {
+      id
+      email
+      name
+      role
+      tenantId
+    }
+  }
+`
 
 export default function ManagePage() {
   const { user } = useAuth()
@@ -97,7 +163,6 @@ export default function ManagePage() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [dropdowns, setDropdowns] = useState<DropDownType>({} as DropDownType)
 
   // Entity List State
   const [entities, setEntities] = useState<any[]>([])
@@ -120,6 +185,42 @@ export default function ManagePage() {
     null,
   )
   const [isQuickAddGuest, setIsQuickAddGuest] = useState(false)
+
+  // Apollo queries and mutations
+  const { data: dropdownsData, refetch: refetchDropdowns } = useQuery(GET_DEV_DROPDOWNS, {
+    skip: !user,
+  })
+
+  const [fetchEntitiesQuery] = useLazyQuery(GET_DEV_ENTITIES, {
+    fetchPolicy: 'network-only',
+  })
+
+  const [devInsert] = useMutation(DEV_INSERT)
+  const [devUpdate] = useMutation(DEV_UPDATE)
+  const [devDelete] = useMutation(DEV_DELETE)
+  const [createUser] = useMutation(CREATE_USER)
+
+  const dropdowns = useMemo<DropDownType>(() => {
+    if (!dropdownsData?.devDropdowns) {
+      return {
+        properties: [],
+        roomTypes: [],
+        guests: [],
+        products: [],
+        rooms: [],
+        bookings: [],
+      }
+    }
+    const { properties, roomTypes, guests, products, rooms, bookings } = dropdownsData.devDropdowns
+    return {
+      properties: properties ? JSON.parse(properties) : [],
+      roomTypes: roomTypes ? JSON.parse(roomTypes) : [],
+      guests: guests ? JSON.parse(guests) : [],
+      products: products ? JSON.parse(products) : [],
+      rooms: rooms ? JSON.parse(rooms) : [],
+      bookings: bookings ? JSON.parse(bookings) : [],
+    }
+  }, [dropdownsData])
 
   // Sync selection states with editingItem
   useEffect(() => {
@@ -152,83 +253,28 @@ export default function ManagePage() {
     }
   }, [user, router])
 
-  const fetchDropdowns = async () => {
-    const { data: properties } = await supabase
-      .from('Property')
-      .select('id, name, timezone, taxPercentage, checkOutTime, settings')
-    const { data: roomTypes } = await supabase
-      .from('RoomType')
-      .select('id, name, propertyId')
-    const { data: guests } = await supabase
-      .from('Guest')
-      .select('id, name')
-      .order('name')
-    const { data: products } = await supabase.from('Product').select('id, name')
-    const { data: bookings } = await supabase
-      .from('Booking')
-      .select('id, Guest(name)')
-
-    // Fetch rooms with propertyId from RoomType join
-    const { data: rooms } = await supabase
-      .from('Room')
-      .select('id, roomNumber, RoomType!inner(name, propertyId, defaultPrice)')
-
-    setDropdowns({ properties, roomTypes, guests, products, rooms, bookings })
+  const fetchDropdownsFunc = async () => {
+    await refetchDropdowns()
   }
-
-  // Fetch dropdown data on mount
-  useEffect(() => {
-    if (user) {
-      fetchDropdowns()
-    }
-  }, [user])
 
   const fetchEntities = async () => {
     if (!user) return
     setLoading(true)
 
     try {
-      let query = supabase
-        .from(activeEntity as any)
-        .select('*', { count: 'exact' })
+      const { data } = await fetchEntitiesQuery({
+        variables: {
+          entity: activeEntity,
+          page: currentPage,
+          limit: PAGE_SIZE,
+          search: searchQuery || null,
+        },
+      })
 
-      // Handle search
-      if (searchQuery) {
-        const searchFields: Record<string, string[]> = {
-          Property: ['name', 'address'],
-          RoomType: ['name'],
-          Room: ['roomNumber'],
-          Booking: [], // Need complex join search
-          Employee: ['name', 'email'],
-          Guest: ['name', 'phone', 'email'],
-          Service: ['name'],
-          Product: ['name', 'category'],
-          Order: ['tableNumber'],
-        }
-
-        const fields = searchFields[activeEntity] || []
-        if (fields.length > 0) {
-          const filter = fields
-            .map((f) => `${f}.ilike.%${searchQuery}%`)
-            .join(',')
-          query = query.or(filter)
-        }
+      if (data?.devEntities) {
+        setEntities(JSON.parse(data.devEntities.dataJson) || [])
+        setTotalCount(data.devEntities.count || 0)
       }
-
-      // Handle Joins for better display
-      if (activeEntity === 'Room') query = query.select('*, RoomType(name)')
-      if (activeEntity === 'Booking') query = query.select('*, Guest(name)')
-      if (activeEntity === 'Order')
-        query = query.select('*, Booking(Guest(name))')
-      if (activeEntity === 'RoomType') query = query.select('*, Property(name)')
-
-      const { data, count, error } = await query
-        .order('createdAt', { ascending: false })
-        .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1)
-
-      if (error) throw error
-      setEntities(data || [])
-      setTotalCount(count || 0)
     } catch (err) {
       console.error(err)
     } finally {
@@ -267,39 +313,28 @@ export default function ManagePage() {
         throw new Error('Only Super Admins are allowed to register new properties.')
       }
 
+      let dbData = null
+
       if (activeEntity === 'Employee') {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-        const apiUrl =
-          process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-
-        const response = await fetch(`${apiUrl}/users`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session?.access_token}`,
+        const { data: userData } = await createUser({
+          variables: {
+            input: {
+              email: data.email as string,
+              password: data.password as string,
+              name: data.name as string,
+              role: data.role as any,
+              tenantId: user?.tenantId || null,
+            },
           },
-          body: JSON.stringify({
-            email: data.email,
-            password: data.password,
-            name: data.name,
-            role: data.role,
-            tenantId: user?.tenantId,
-          }),
         })
-
-        if (!response.ok) {
-          const errData = await response.json()
-          throw new Error(errData.message || 'Failed to create employee')
-        }
+        dbData = userData?.createUser
 
         setSuccess(
           `Employee ${editingItem ? 'updated' : 'created'} successfully!`,
         )
         setIsDialogOpen(false)
         setEditingItem(null)
-        ;(e.target as HTMLFormElement).reset()
+          ; (e.target as HTMLFormElement).reset()
         fetchEntities()
         return
       }
@@ -338,7 +373,7 @@ export default function ManagePage() {
       // Handle Photos upload for Property & RoomType
       let uploadedPhotoUrls: string[] = []
       const photosFiles = formData.getAll('photosFiles') as File[]
-      
+
       if (photosFiles && photosFiles.length > 0) {
         for (const file of photosFiles) {
           if (file.size > 0) {
@@ -361,10 +396,10 @@ export default function ManagePage() {
 
       // Handle Quick Add Guest
       if (activeEntity === 'Booking' && isQuickAddGuest) {
-        const { data: newGuest, error: guestError } = await supabase
-          .from('Guest')
-          .insert([
-            {
+        const guestRes = await devInsert({
+          variables: {
+            entity: 'Guest',
+            dataJson: JSON.stringify({
               name: data.quickGuestName as string,
               phone: data.quickGuestPhone as string,
               email: data.quickGuestEmail as string,
@@ -373,12 +408,10 @@ export default function ManagePage() {
               idProofNumber: data.quickGuestIdNumber as string,
               idProofUrl: idProofUrl,
               tenantId: user!.tenantId,
-            },
-          ])
-          .select()
-          .single()
-
-        if (guestError) throw guestError
+            }),
+          },
+        })
+        const newGuest = JSON.parse(guestRes.data?.devInsert || '{}')
         finalGuestId = newGuest.id
       }
 
@@ -434,58 +467,58 @@ export default function ManagePage() {
           : {}),
         ...(activeEntity === 'Booking'
           ? (() => {
-              const start = new Date(checkInDateStr)
-              const end = new Date(checkOutDateStr)
+            const start = new Date(checkInDateStr)
+            const end = new Date(checkOutDateStr)
 
-              const propertyInfo = dropdowns.properties?.find(
-                (p) => p.id === data.propertyId,
-              )
+            const propertyInfo = dropdowns.properties?.find(
+              (p) => p.id === data.propertyId,
+            )
 
-              const propertySettings = propertyInfo?.settings as { checkoutTime?: string, taxAmount?: number, defaultTaxEnabled?: boolean, checkinTime?: string} | null
+            const propertySettings = propertyInfo?.settings as { checkoutTime?: string, taxAmount?: number, defaultTaxEnabled?: boolean, checkinTime?: string } | null
 
-              // 1. Base nights = calendar days
-              let nights = differenceInCalendarDays(end, start)
+            // 1. Base nights = calendar days
+            let nights = differenceInCalendarDays(end, start)
 
-              // 2. Time-based logic
-              const checkOutTimeStr = format(end, 'HH:mm:ss')
-              const propCheckOutTime = propertySettings?.checkoutTime 
-                ? `${propertySettings.checkoutTime}:00`
-                : (propertyInfo?.checkOutTime || '07:00:00')
-              if (checkOutTimeStr > propCheckOutTime) {
-                nights += 1
-              }
+            // 2. Time-based logic
+            const checkOutTimeStr = format(end, 'HH:mm:ss')
+            const propCheckOutTime = propertySettings?.checkoutTime
+              ? `${propertySettings.checkoutTime}:00`
+              : (propertyInfo?.checkOutTime || '07:00:00')
+            if (checkOutTimeStr > propCheckOutTime) {
+              nights += 1
+            }
 
-              // 3. Waiver
-              if (
-                data.waiveLastDayCharge === 'on' ||
-                data.waiveLastDayCharge === 'true'
-              ) {
-                nights -= 1
-              }
+            // 3. Waiver
+            if (
+              data.waiveLastDayCharge === 'on' ||
+              data.waiveLastDayCharge === 'true'
+            ) {
+              nights -= 1
+            }
 
-              nights = Math.max(1, nights)
+            nights = Math.max(1, nights)
 
-              const selectedRoom = dropdowns.rooms?.find(
-                (r) => r.id === (data.roomId as string),
-              )
-              const rate = data.overrideRate
-                ? parseFloat(data.overrideRate as string)
-                : Number(selectedRoom?.RoomType?.defaultPrice) || 0
+            const selectedRoom = dropdowns.rooms?.find(
+              (r) => r.id === (data.roomId as string),
+            )
+            const rate = data.overrideRate
+              ? parseFloat(data.overrideRate as string)
+              : Number(selectedRoom?.RoomType?.defaultPrice) || 0
 
-              const subtotal = rate * nights
-              const taxVal =
-                subtotal * (((propertySettings?.taxAmount ?? propertyInfo?.taxPercentage) || 0) / 100)
-              const totalAmount = subtotal + taxVal
+            const subtotal = rate * nights
+            const taxVal =
+              subtotal * (((propertySettings?.taxAmount ?? propertyInfo?.taxPercentage) || 0) / 100)
+            const totalAmount = subtotal + taxVal
 
-              return {
-                guestId: finalGuestId,
-                checkInDate: checkInDateStr,
-                checkOutDate: checkOutDateStr,
-                totalAmount: totalAmount,
-                adults: parseInt(data.adults as string) || 1,
-                children: parseInt(data.children as string) || 0,
-              }
-            })()
+            return {
+              guestId: finalGuestId,
+              checkInDate: checkInDateStr,
+              checkOutDate: checkOutDateStr,
+              totalAmount: totalAmount,
+              adults: parseInt(data.adults as string) || 1,
+              children: parseInt(data.children as string) || 0,
+            }
+          })()
           : {}),
         // Convert numbers if needed
         ...(data.price ? { price: parseFloat(data.price as string) } : {}),
@@ -526,14 +559,15 @@ export default function ManagePage() {
         delete (payload as any).checkOutTime
       }
 
-      let dbResult
       if (editingItem) {
-        dbResult = await supabase
-          .from(activeEntity as any)
-          .update(payload)
-          .eq('id', editingItem.id)
-          .select()
-          .single()
+        const res = await devUpdate({
+          variables: {
+            entity: activeEntity,
+            id: editingItem.id,
+            dataJson: JSON.stringify(payload),
+          },
+        })
+        dbData = JSON.parse(res.data?.devUpdate || '{}')
       } else if (
         activeEntity === 'Room' &&
         parseInt(numberOfRooms as string) > 1
@@ -544,41 +578,43 @@ export default function ManagePage() {
           ...payload,
           roomNumber: (startNum + i).toString(),
         }))
-        dbResult = await supabase.from('Room').insert(payloads as any).select()
+        const res = await devInsert({
+          variables: {
+            entity: 'Room',
+            dataJson: JSON.stringify(payloads),
+          },
+        })
+        dbData = JSON.parse(res.data?.devInsert || '[]')
       } else {
-        dbResult = await supabase
-          .from(activeEntity as any)
-          .insert([payload])
-          .select()
-          .single()
+        const res = await devInsert({
+          variables: {
+            entity: activeEntity,
+            dataJson: JSON.stringify(payload),
+          },
+        })
+        dbData = JSON.parse(res.data?.devInsert || '{}')
       }
-
-      const { data: dbData, error: dbError } = dbResult
-
-      if (dbError) throw dbError
 
       // Handle linked assignment for Booking
       if (activeEntity === 'Booking' && dbData) {
-        // Fetch roomTypeId for the selected room
-        const { data: roomInfo } = await supabase
-          .from('Room')
-          .select('roomTypeId')
-          .eq('id', roomId as string)
-          .single()
+        // Fetch roomTypeId for the selected room from dropdowns
+        const roomInfo = dropdowns.rooms?.find((r) => r.id === (roomId as string))
 
         if (roomInfo) {
-          await supabase.from('BookingRoom').insert([
-            {
-              // @ts-expect-error dbData is not typed
-              bookingId: dbData.id,
-              roomId: roomId as string,
-              roomTypeId: roomInfo.roomTypeId,
-              priceOverride: data.overrideRate
-                ? parseFloat(data.overrideRate as string)
-                : null,
-              status: 'CONFIRMED',
+          await devInsert({
+            variables: {
+              entity: 'BookingRoom',
+              dataJson: JSON.stringify({
+                bookingId: dbData.id,
+                roomId: roomId as string,
+                roomTypeId: roomInfo.roomTypeId || roomInfo.RoomType?.id || roomInfo.RoomType?.roomTypeId,
+                priceOverride: data.overrideRate
+                  ? parseFloat(data.overrideRate as string)
+                  : null,
+                status: 'CONFIRMED',
+              }),
             },
-          ])
+          })
         }
       }
 
@@ -588,8 +624,8 @@ export default function ManagePage() {
       setIsDialogOpen(false)
       setEditingItem(null)
       fetchEntities()
-      fetchDropdowns()
-      ;(e.target as HTMLFormElement).reset()
+      fetchDropdownsFunc()
+        ; (e.target as HTMLFormElement).reset()
       setSelectedPropertyId(null)
       setIsQuickAddGuest(false)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -605,14 +641,15 @@ export default function ManagePage() {
     if (!confirm('Are you sure you want to delete this?')) return
     setLoading(true)
     try {
-      const { error } = await supabase
-        .from(activeEntity as any)
-        .delete()
-        .eq('id', id)
-      if (error) throw error
+      await devDelete({
+        variables: {
+          entity: activeEntity,
+          id,
+        },
+      })
       setSuccess(`${activeEntity} deleted successfully!`)
       fetchEntities()
-      fetchDropdowns()
+      fetchDropdownsFunc()
     } catch (err: any) {
       setError(err.message || `Failed to delete ${activeEntity}`)
     } finally {
@@ -668,81 +705,79 @@ export default function ManagePage() {
             const phoneStr = String(row['Contact Number'] || '')
             if (!phoneStr) throw new Error('Contact Number is missing')
 
-            const { data: existingGuest } = await supabase
-              .from('Guest')
-              .select('id')
-              .eq('phone', phoneStr)
-              .eq('tenantId', user!.tenantId)
-              .maybeSingle()
+            const existingGuest = dropdowns.guests?.find((g: any) => String(g.phone) === phoneStr)
 
             if (existingGuest) {
               guestId = existingGuest.id
             } else {
-              const { data: newGuest, error: guestError } = await supabase
-                .from('Guest')
-                .insert([{
-                  name: row['Guest Name'] || 'Unknown Guest',
-                  phone: phoneStr,
-                  idProofType: row['ID Type'] || null,
-                  idProofNumber: String(row['ID Number'] || ''),
-                  tenantId: user!.tenantId
-                }])
-                .select()
-                .single()
-              if (guestError) throw guestError
+              const guestRes = await devInsert({
+                variables: {
+                  entity: 'Guest',
+                  dataJson: JSON.stringify({
+                    name: row['Guest Name'] || 'Unknown Guest',
+                    phone: phoneStr,
+                    idProofType: row['ID Type'] || null,
+                    idProofNumber: String(row['ID Number'] || ''),
+                    tenantId: user!.tenantId,
+                  }),
+                },
+              })
+              const newGuest = JSON.parse(guestRes.data?.devInsert || '{}')
               guestId = newGuest.id
             }
 
             // 2. Find Room
-            const { data: room } = await supabase
-              .from('Room')
-              .select('id, roomTypeId, RoomType!inner(propertyId, defaultPrice)')
-              .eq('RoomType.propertyId', selectedPropertyId)
-              .eq('roomNumber', String(row['Room']))
-              .maybeSingle()
-            
+            const room = dropdowns.rooms?.find(
+              (r: any) =>
+                r.RoomType?.propertyId === selectedPropertyId &&
+                String(r.roomNumber) === String(row['Room']),
+            )
+
             if (!room) throw new Error(`Room ${row['Room']} not found in selected property`)
 
             // 3. Create Booking
             const checkIn = new Date(row['Chek-in Date'])
             const checkOut = new Date(row['Check-Out Date'])
             if (isNaN(checkIn.getTime()) || isNaN(checkOut.getTime())) throw new Error('Invalid dates')
-            
+
             const propertyInfo = dropdowns.properties?.find(p => p.id === selectedPropertyId)
             const nights = Math.max(1, differenceInCalendarDays(checkOut, checkIn))
             const rate = parseFloat(row['Override rate']) || room.RoomType?.defaultPrice || 0
             const subtotal = rate * nights
             const propSettings = propertyInfo?.settings as { taxAmount?: number, defaultTaxEnabled?: boolean }
-            const taxVal = propSettings.defaultTaxEnabled ? subtotal * ((propSettings?.taxAmount || 0) / 100) : 0
+            const taxVal = propSettings?.defaultTaxEnabled ? subtotal * ((propSettings?.taxAmount || 0) / 100) : 0
             const totalAmount = subtotal + taxVal
 
-            const { data: booking, error: bookingError } = await supabase
-              .from('Booking')
-              .insert([{
-                guestId,
-                propertyId: selectedPropertyId,
-                tenantId: user!.tenantId,
-                checkInDate: checkIn.toISOString(),
-                checkOutDate: checkOut.toISOString(),
-                totalAmount,
-                status: 'CHECKED_OUT',
-                createdAt: row['Booking Date'] ? new Date(row['Booking Date']).toISOString() : new Date().toISOString()
-              }])
-              .select()
-              .single()
-            if (bookingError) throw bookingError
+            const bookingRes = await devInsert({
+              variables: {
+                entity: 'Booking',
+                dataJson: JSON.stringify({
+                  guestId,
+                  propertyId: selectedPropertyId,
+                  tenantId: user!.tenantId,
+                  checkInDate: checkIn.toISOString(),
+                  checkOutDate: checkOut.toISOString(),
+                  totalAmount,
+                  status: 'CHECKED_OUT',
+                  createdAt: row['Booking Date'] ? new Date(row['Booking Date']).toISOString() : new Date().toISOString(),
+                }),
+              },
+            })
+            const booking = JSON.parse(bookingRes.data?.devInsert || '{}')
 
             // 4. Create BookingRoom
-            const { error: brError } = await supabase
-              .from('BookingRoom')
-              .insert([{
-                bookingId: booking.id,
-                roomId: room.id,
-                roomTypeId: room.roomTypeId,
-                priceOverride: rate,
-                status: 'CHECKED_OUT'
-              }])
-            if (brError) throw brError
+            await devInsert({
+              variables: {
+                entity: 'BookingRoom',
+                dataJson: JSON.stringify({
+                  bookingId: booking.id,
+                  roomId: room.id,
+                  roomTypeId: room.roomTypeId || room.RoomType?.id,
+                  priceOverride: rate,
+                  status: 'CHECKED_OUT',
+                }),
+              },
+            })
 
             successCount++
           } catch (err: any) {
@@ -762,6 +797,7 @@ export default function ManagePage() {
       setLoading(false)
     }
   }
+
 
   const renderBulkUploadDialog = () => (
     <Dialog open={isBulkUploadOpen} onOpenChange={setIsBulkUploadOpen}>
@@ -830,7 +866,7 @@ export default function ManagePage() {
               </Button>
               <div className="p-4 rounded-xl bg-amber-50 border border-amber-100">
                 <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest leading-relaxed">
-                  Important: Ensure headers match exactly as in the template. 
+                  Important: Ensure headers match exactly as in the template.
                   Dates should be in YYYY-MM-DD format.
                 </p>
               </div>
@@ -878,12 +914,12 @@ export default function ManagePage() {
               className="h-14 w-14 rounded-2xl border-slate-100 bg-white shadow-sm shrink-0 hover:bg-slate-50 active:scale-95 transition-all"
               onClick={() => {
                 fetchEntities()
-                fetchDropdowns()
+                fetchDropdownsFunc()
               }}
               disabled={loading}
             >
               <motion.div
-                animate={loading ? { rotate: 360 } : { }}
+                animate={loading ? { rotate: 360 } : {}}
                 transition={{ repeat: loading ? Infinity : 1, duration: 1, ease: 'linear' }}
               >
                 <RefreshCw className={`w-5 h-5 ${loading ? 'text-primary' : 'text-slate-400'}`} />
@@ -960,8 +996,8 @@ export default function ManagePage() {
                       {columns.map((col) => {
                         const value = col.includes('.')
                           ? col
-                              .split('.')
-                              .reduce((obj, key) => obj?.[key], item)
+                            .split('.')
+                            .reduce((obj, key) => obj?.[key], item)
                           : item[col]
 
                         const displayValue = col.toLowerCase().includes('date')

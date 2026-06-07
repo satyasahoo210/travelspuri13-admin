@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-import { createClient } from '@/lib/utils/supabase/client';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useLazyQuery } from '@apollo/client/react';
 import {
   eachDayOfInterval,
   endOfDay,
@@ -39,9 +40,83 @@ type ReportType = 'occupancy' | 'revenue' | 'booking' | 'payments-due';
 
 type DateFilter = 'today' | 'yesterday' | 'this-week' | 'last-week' | 'this-month' | 'last-month' | 'this-year' | 'last-year' | 'custom';
 
+const GET_PAYMENTS: TypedDocumentNode<{ payments: any[] }> = gql`
+  query GetPayments {
+    payments {
+      id
+      amount
+      method
+      createdAt
+      notes
+      bookingId
+      Booking {
+        id
+        Guest {
+          id
+          name
+          email
+          phone
+        }
+      }
+    }
+  }
+`;
+
+const GET_BOOKINGS: TypedDocumentNode<{ bookings: any[] }, { propertyId: string }> = gql`
+  query GetBookings($propertyId: String!) {
+    bookings(propertyId: $propertyId) {
+      id
+      checkInDate
+      checkOutDate
+      status
+      source
+      totalAmount
+      createdAt
+      adults
+      children
+      Guest {
+        id
+        name
+        email
+        phone
+      }
+      BookingRoom {
+        id
+        roomId
+        Room {
+          id
+          roomNumber
+        }
+      }
+      Payment {
+        id
+        amount
+      }
+    }
+  }
+`;
+
+const GET_ROOMS: TypedDocumentNode<{ rooms: any[] }, { propertyId: string }> = gql`
+  query GetRooms($propertyId: String!) {
+    rooms(propertyId: $propertyId) {
+      id
+      roomNumber
+      status
+      roomTypeId
+      RoomType {
+        id
+        name
+        propertyId
+      }
+    }
+  }
+`;
+
 export default function ReportsPage() {
   const { currentProperty } = useProperty();
-  const supabase = createClient();
+  const [getPayments] = useLazyQuery(GET_PAYMENTS, { fetchPolicy: 'network-only' });
+  const [getBookings] = useLazyQuery(GET_BOOKINGS, { fetchPolicy: 'network-only' });
+  const [getRooms] = useLazyQuery(GET_ROOMS, { fetchPolicy: 'network-only' });
 
   const [activeReport, setActiveReport] = useState<ReportType | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>('this-month');
@@ -79,63 +154,83 @@ export default function ReportsPage() {
     try {
       if (activeReport === 'revenue') {
         const { start, end } = getDateRange();
-        const { data: payments } = await supabase
-          .from('Payment')
-          .select('*, Booking(*, Guest(*))')
-          .eq('tenantId', currentProperty.tenantId)
-          .gte('createdAt', start.toISOString())
-          .lte('createdAt', end.toISOString())
-          .order('createdAt', { ascending: false });
-        setData(payments || []);
+        const { data: pData } = await getPayments();
+        const paymentsList = pData?.payments || [];
+        
+        // Filter by date range and tenantId
+        const filtered = paymentsList.filter((p: any) => {
+          const date = new Date(p.createdAt);
+          return date >= start && date <= end;
+        });
+        setData(filtered);
       }
       else if (activeReport === 'booking') {
         const { start, end } = getDateRange();
-        const { data: bookings } = await supabase
-          .from('Booking')
-          .select('*, Guest(*), BookingRoom(Room(roomNumber))')
-          .eq('propertyId', currentProperty.id)
-          .gte('createdAt', start.toISOString())
-          .lte('createdAt', end.toISOString())
-          .order('createdAt', { ascending: false });
-        setData(bookings || []);
+        const { data: bData } = await getBookings({
+          variables: { propertyId: currentProperty.id }
+        });
+        const bookingsList = bData?.bookings || [];
+        
+        // Filter by date range
+        const filtered = bookingsList.filter((b: any) => {
+          const date = new Date(b.createdAt);
+          return date >= start && date <= end;
+        });
+        setData(filtered);
       }
       else if (activeReport === 'payments-due') {
         const { start, end } = getDateRange();
-        const { data: bookings } = await supabase
-          .from('Booking')
-          .select('*, Guest(*), Payment(amount)')
-          .eq('propertyId', currentProperty.id)
-          .gte('createdAt', start.toISOString())
-          .lte('createdAt', end.toISOString());
+        const { data: bData } = await getBookings({
+          variables: { propertyId: currentProperty.id }
+        });
+        const bookingsList = bData?.bookings || [];
+        
+        // Filter by date range and calculate due
+        const filtered = bookingsList
+          .filter((b: any) => {
+            const date = new Date(b.createdAt);
+            return date >= start && date <= end;
+          })
+          .map((b: any) => {
+            const paidAmount = b.Payment?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0;
+            const due = Number(b.totalAmount || 0) - paidAmount;
+            return { ...b, paidAmount, due };
+          })
+          .filter((b: any) => b.due > 0);
 
-        const mappedData = (bookings || []).map(b => {
-          const paidAmount = b.Payment?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0;
-          const due = Number(b.totalAmount) - paidAmount;
-          return { ...b, paidAmount, due };
-        }).filter(b => b.due > 0);
-
-        setData(mappedData);
+        setData(filtered);
       }
       else if (activeReport === 'occupancy') {
-        // Fetch all rooms first
-        const { data: roomsList } = await supabase
-          .from('Room')
-          .select('*, RoomType!inner(*)')
-          .eq('RoomType.propertyId', currentProperty.id)
-          .order('roomNumber');
-        setRooms(roomsList || []);
+        // Fetch rooms
+        const { data: rData } = await getRooms({
+          variables: { propertyId: currentProperty.id }
+        });
+        const roomsList = rData?.rooms || [];
+        
+        // Sort rooms by roomNumber asc
+        const sortedRooms = [...roomsList].sort((a: any, b: any) => 
+          a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true })
+        );
+        setRooms(sortedRooms);
 
         const start = startOfMonth(new Date(parseInt(occYear!), parseInt(occMonth!) - 1));
         const end = endOfMonth(start);
 
-        const { data: bookings } = await supabase
-          .from('Booking')
-          .select('*, BookingRoom(*)')
-          .eq('propertyId', currentProperty.id)
-          .neq('status', 'CANCELLED')
-          .or(`checkInDate.lte.${end.toISOString()},checkOutDate.gte.${start.toISOString()}`);
+        // Fetch bookings for occupancy overlaps
+        const { data: bData } = await getBookings({
+          variables: { propertyId: currentProperty.id }
+        });
+        const bookingsList = bData?.bookings || [];
 
-        setData(bookings || []);
+        // Filter bookings where checkInDate <= end AND checkOutDate >= start AND status !== 'CANCELLED'
+        const filtered = bookingsList.filter((b: any) => {
+          if (b.status === 'CANCELLED') return false;
+          const checkIn = new Date(b.checkInDate);
+          const checkOut = new Date(b.checkOutDate);
+          return checkIn <= end && checkOut >= start;
+        });
+
+        setData(filtered);
       }
     } catch (err) {
       console.error('Report Generation Error:', err);

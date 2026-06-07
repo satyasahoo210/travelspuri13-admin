@@ -5,66 +5,259 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { generateInvoicePDF } from '@/lib/finance/invoice-pdf';
 import { cn } from '@/lib/utils';
-import { createClient } from '@/lib/utils/supabase/client';
 import { differenceInCalendarDays, format } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
-import { ArrowLeft, CreditCard, Download, Globe, Hotel, Loader2, Mail, MapPin, Phone, Printer, Receipt } from 'lucide-react';
+import { ArrowLeft, CreditCard, Download, Globe, Hotel, Loader2, Mail, MapPin, Phone, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery } from '@apollo/client/react';
+
+// GraphQL Response Interfaces
+interface GuestType {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  gstin?: string | null;
+  companyName?: string | null;
+  grNumber?: string | null;
+  address?: string | null;
+}
+
+interface PropertyType {
+  id: string;
+  name: string;
+  address?: string | null;
+  timezone?: string | null;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  settings?: string | null;
+  taxPercentage?: number | null;
+  logoUrl?: string | null;
+  phone?: string | null;
+  email?: string | null;
+}
+
+interface RoomTypeType {
+  id: string;
+  name: string;
+  defaultPrice?: number | null;
+}
+
+interface RoomType {
+  id: string;
+  roomNumber: string;
+}
+
+interface BookingRoomType {
+  id: string;
+  bookingId: string;
+  roomId?: string | null;
+  roomTypeId?: string | null;
+  priceOverride?: number | null;
+  status: string;
+  checkInDate: string;
+  checkOutDate: string;
+  Room?: RoomType | null;
+  RoomType?: RoomTypeType | null;
+}
+
+interface ServiceType {
+  id: string;
+  name: string;
+  price?: number | null;
+}
+
+interface BookingServiceType {
+  id: string;
+  bookingId: string;
+  serviceId: string;
+  quantity?: number | null;
+  totalPrice?: number | null;
+  Service?: ServiceType | null;
+}
+
+interface PaymentType {
+  id: string;
+  bookingId: string;
+  tenantId: string;
+  amount: number;
+  method: string;
+  status: string;
+  createdAt: string;
+  notes?: string | null;
+}
+
+interface BillingType {
+  id: string;
+  bookingId: string;
+  tenantId: string;
+  totalAmount: number;
+  taxAmount: number;
+  paymentStatus: string;
+  currency?: string | null;
+}
+
+interface BookingDetails {
+  id: string;
+  checkInDate: string;
+  checkOutDate: string;
+  status: string;
+  source?: string | null;
+  totalAmount?: number | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  adults?: number | null;
+  children?: number | null;
+  discountAmount?: number | null;
+  discountType?: string | null;
+  notes?: string | null;
+  waiveLastDayCharge?: boolean | null;
+  actualCheckOut?: string | null;
+  Guest?: GuestType | null;
+  Property?: PropertyType | null;
+  BookingRoom?: BookingRoomType[] | null;
+  BookingService?: BookingServiceType[] | null;
+  Payment?: PaymentType[] | null;
+  Billing?: BillingType | null;
+}
+
+interface GetInvoiceDetailsResponse {
+  booking: BookingDetails;
+}
+
+interface GetInvoiceDetailsVariables {
+  id: string;
+}
+
+const GET_INVOICE_DETAILS: TypedDocumentNode<GetInvoiceDetailsResponse, GetInvoiceDetailsVariables> = gql`
+  query GetInvoiceDetails($id: ID!) {
+    booking(id: $id) {
+      id
+      checkInDate
+      checkOutDate
+      status
+      source
+      totalAmount
+      createdAt
+      updatedAt
+      adults
+      children
+      discountAmount
+      discountType
+      notes
+      waiveLastDayCharge
+      actualCheckOut
+      Guest {
+        id
+        name
+        phone
+        email
+        gstin
+        grNumber
+        address
+      }
+      Property {
+        id
+        name
+        address
+        timezone
+        checkInTime
+        checkOutTime
+        settings
+        taxPercentage
+        logoUrl
+        phone
+        email
+      }
+      BookingRoom {
+        id
+        bookingId
+        roomId
+        roomTypeId
+        priceOverride
+        status
+        checkInDate
+        checkOutDate
+        Room {
+          id
+          roomNumber
+        }
+        RoomType {
+          id
+          name
+          defaultPrice
+        }
+      }
+      BookingService {
+        id
+        bookingId
+        serviceId
+        quantity
+        totalPrice
+        Service {
+          id
+          name
+          price
+        }
+      }
+      Payment {
+        id
+        bookingId
+        tenantId
+        amount
+        method
+        status
+        createdAt
+        notes
+      }
+      Billing {
+        id
+        bookingId
+        tenantId
+        totalAmount
+        taxAmount
+        paymentStatus
+        currency
+      }
+    }
+  }
+`;
 
 export default function InvoicePage() {
   const params = useParams();
   const bookingId = params.id as string;
-  const { currentProperty } = useProperty();
-  const supabase = createClient();
 
-  const [data, setData] = useState<{
-    booking: any;
-    billing: any;
-    roomCharges: any[];
-    serviceCharges: any[];
-    payments: any[];
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: queryData, loading } = useQuery(GET_INVOICE_DETAILS, {
+    variables: { id: bookingId },
+    skip: !bookingId,
+  });
 
-  const fetchInvoiceData = async () => {
-    if (!bookingId) return;
-    setLoading(true);
-
-    const [bookingRes, billingRes, roomsRes, servicesRes, paymentsRes] = await Promise.all([
-      supabase.from('Booking').select('*, Guest(*), Property(*)').eq('id', bookingId).single(),
-      supabase.from('Billing').select('*').eq('bookingId', bookingId).single(),
-      supabase.from('BookingRoom').select('*, RoomType(*)').eq('bookingId', bookingId),
-      supabase.from('BookingService').select('*, Service(*)').eq('bookingId', bookingId),
-      supabase.from('Payment').select('*').eq('bookingId', bookingId)
-    ]);
-
-    setData({
-      booking: bookingRes.data,
-      billing: billingRes.data,
-      roomCharges: roomsRes.data || [],
-      serviceCharges: servicesRes.data || [],
-      payments: paymentsRes.data || []
-    });
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchInvoiceData();
-  }, [bookingId]);
-
-  if (loading || !data || !data.booking) return (
+  if (loading || !queryData || !queryData.booking) return (
     <div className="flex flex-col items-center justify-center h-screen space-y-4">
       <Loader2 className="h-8 w-8 text-primary animate-spin" />
       <div className="text-muted-foreground font-bold uppercase tracking-widest text-[10px]">Generating Invoice...</div>
     </div>
   );
 
-  const { booking, roomCharges, serviceCharges, payments } = data;
+  const booking = queryData.booking;
   const guest = booking.Guest;
   const property = booking.Property;
-  const settings = property.settings || {};
+  
+  const settings = (() => {
+    if (!property?.settings) return {};
+    try {
+      return typeof property.settings === 'string'
+        ? JSON.parse(property.settings)
+        : property.settings;
+    } catch {
+      return {};
+    }
+  })();
+
+  const roomCharges = booking.BookingRoom || [];
+  const serviceCharges = booking.BookingService || [];
+  const payments = booking.Payment || [];
 
   // Calculation Logic (Mirrored from BookingDetailPage)
   const calculateTotals = () => {
@@ -75,7 +268,7 @@ export default function InvoicePage() {
     const checkOutTimeStr = format(checkOutDate, 'HH:mm:ss');
     const propCheckOutTime = settings?.checkoutTime 
       ? `${settings.checkoutTime}:00`
-      : (property.checkOutTime || '07:00:00');
+      : (property?.checkOutTime || '07:00:00');
 
     if (checkOutTimeStr > propCheckOutTime) nights += 1;
     if (booking.waiveLastDayCharge) nights -= 1;
@@ -86,11 +279,11 @@ export default function InvoicePage() {
       0
     );
     const totalRoomCharges = roomSubtotal * nights;
-    const serviceSubtotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice), 0);
+    const serviceSubtotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
     const subtotal = totalRoomCharges + serviceSubtotal;
     
     const discountAmount = booking.discountType === 'PERCENTAGE'
-      ? subtotal * (Number(booking.discountAmount) / 100)
+      ? subtotal * (Number(booking.discountAmount || 0) / 100)
       : Number(booking.discountAmount || 0);
 
     const taxRate = (settings?.taxAmount ?? property?.taxPercentage ?? 0) / 100;
@@ -115,12 +308,79 @@ export default function InvoicePage() {
   const totals = calculateTotals();
 
   const handleDownload = async () => {
+    if (!property) return;
+    
+    // Map property settings safely for generator
+    const mappedProperty = {
+      name: property.name,
+      address: property.address || '',
+      phone: property.phone || settings?.phone || null,
+      email: property.email || settings?.email || null,
+      logoUrl: property.logoUrl || null,
+      checkOutTime: property.checkOutTime || null,
+      taxPercentage: property.taxPercentage || null,
+      settings: {
+        checkoutTime: settings?.checkoutTime || '07:00:00',
+        taxAmount: settings?.taxAmount
+      }
+    };
+
+    // Map booking guest safely for generator
+    const mappedBooking = {
+      id: booking.id,
+      adults: booking.adults || null,
+      children: booking.children || null,
+      checkInDate: booking.checkInDate,
+      checkOutDate: booking.checkOutDate,
+      waiveLastDayCharge: booking.waiveLastDayCharge || null,
+      Guest: guest ? {
+        name: guest.name,
+        phone: guest.phone || null,
+        address: guest.address || null,
+        gstin: guest.gstin || null
+      } : null,
+      source: booking.source || null
+    };
+
+    const mappedRoomCharges = roomCharges.map(rc => ({
+      id: rc.id,
+      checkInDate: rc.checkInDate || null,
+      checkOutDate: rc.checkOutDate || null,
+      priceOverride: rc.priceOverride || null,
+      RoomType: rc.RoomType ? {
+        id: rc.RoomType.id,
+        name: rc.RoomType.name,
+        defaultPrice: rc.RoomType.defaultPrice || null
+      } : null,
+      Room: rc.Room ? {
+        id: rc.Room.id,
+        roomNumber: rc.Room.roomNumber
+      } : null
+    }));
+
+    const mappedServiceCharges = serviceCharges.map(sc => ({
+      id: sc.id,
+      totalPrice: sc.totalPrice || 0,
+      quantity: sc.quantity || null,
+      Service: sc.Service ? {
+        id: sc.Service.id,
+        name: sc.Service.name
+      } : null
+    }));
+
+    const mappedPayments = payments.map(p => ({
+      id: p.id,
+      amount: p.amount,
+      method: p.method,
+      createdAt: p.createdAt || null
+    }));
+
     await generateInvoicePDF(
-      booking,
-      roomCharges,
-      serviceCharges,
-      property,
-      payments,
+      mappedBooking,
+      mappedRoomCharges,
+      mappedServiceCharges,
+      mappedProperty,
+      mappedPayments,
       {
         ...totals,
         showTax: true
