@@ -23,6 +23,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 
 import { useProperty } from '@/components/providers/property-provider'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import {
@@ -34,19 +35,106 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
-import { Tables } from '@/database.types'
 import { cn } from '@/lib/utils'
-import { createClient } from '@/lib/utils/supabase/client'
+import { gql, TypedDocumentNode } from '@apollo/client'
+import { useApolloClient } from '@apollo/client/react'
 
-type Booking = Tables<'Booking'> & {
-  Guest: Pick<Tables<'Guest'>, 'name' | 'phone'>
-  Property: Pick<Tables<'Property'>, 'name'>
+type Booking = {
+  id: string
+  guestId: string
+  propertyId: string
+  tenantId: string
+  checkInDate: string
+  checkOutDate: string
+  status: string
+  source: string
+  totalAmount: number | null
+  createdAt: string | null
+  updatedAt: string | null
+  adults?: number | null
+  children?: number | null
+  discountAmount?: number | null
+  discountType?: string | null
+  notes?: string | null
+  waiveLastDayCharge?: boolean | null
+  actualCheckOut?: string | null
+  Guest: {
+    name: string
+    phone: string | null
+  } | null
+  Property: {
+    name: string
+  } | null
   BookingRoom: Array<{
-    Room: Pick<Tables<'Room'>, 'roomNumber'> | null
-  }>
-  Payment: Array<{ amount: number }>
+    Room: {
+      roomNumber: string
+    } | null
+  }> | null
+  Payment: Array<{ amount: number }> | null
 }
+
+interface GetBookingsData {
+  syncBookings: {
+    data: Booking[]
+  }
+}
+
+const GET_BOOKINGS: TypedDocumentNode<GetBookingsData, { propertyId: string; since: string }> = gql`
+  query GetBookings($propertyId: String!, $since: String) {
+    syncBookings(propertyId: $propertyId, since: $since) {
+      data {
+        id
+        guestId
+        propertyId
+        tenantId
+        checkInDate
+        checkOutDate
+        status
+        source
+        totalAmount
+        createdAt
+        updatedAt
+        adults
+        children
+        discountAmount
+        discountType
+        notes
+        waiveLastDayCharge
+        actualCheckOut
+        Guest {
+          id
+          name
+          phone
+        }
+        Property {
+          id
+          name
+        }
+        BookingRoom {
+          id
+          Room {
+            id
+            roomNumber
+          }
+        }
+        Payment {
+          id
+          amount
+        }
+      }
+    }
+  }
+`;
+
+const UPDATE_BOOKING = gql`
+  mutation UpdateBooking($id: ID!, $input: UpdateBookingInput!) {
+    updateBooking(id: $id, input: $input) {
+      id
+      status
+      actualCheckOut
+    }
+  }
+`;
 
 export default function BookingsPage() {
   return (
@@ -80,27 +168,30 @@ function BookingsContent() {
     maxAmount: searchParams.get('maxAmount') || '',
   })
 
-  const supabase = createClient()
+  const client = useApolloClient()
   const { currentProperty } = useProperty()
 
   const fetchBookings = async () => {
     if (!currentProperty) return
 
     setLoading(true)
-    const { data, error } = await supabase
-      .from('Booking')
-      .select(
-        '*, Guest(name, phone), Property(name), BookingRoom(Room(roomNumber)), Payment(amount)',
-      )
-      .eq('propertyId', currentProperty.id)
-      .order('checkInDate', { ascending: false })
+    try {
+      const { data } = await client.query({
+        query: GET_BOOKINGS,
+        variables: { propertyId: currentProperty.id, since: "0" },
+      })
 
-    if (error) {
-      console.error('Error fetching bookings:', error)
-    } else {
-      setBookings(data)
+      if (data && data.syncBookings) {
+        const sortedBookings = [...data.syncBookings.data].sort((a, b) =>
+          new Date(b.checkInDate).getTime() - new Date(a.checkInDate).getTime()
+        )
+        setBookings(sortedBookings)
+      }
+    } catch (error) {
+      console.error('Error fetching bookings via GQL:', error)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   useEffect(() => {
@@ -483,6 +574,7 @@ function BookingList({
   onBookingClick: (b: any) => void,
   onNewBooking: () => void
 }) {
+  const client = useApolloClient()
   return (
     <div className="grid gap-4">
       <AnimatePresence mode="wait">
@@ -577,26 +669,28 @@ function BookingList({
                             </p>
                           </div>
                         )}
-                        
+
                         <div className="mt-3 w-full flex justify-end gap-2">
                           {(booking.status === 'CONFIRMED' || booking.status === 'PENDING') && (
-                            <Button 
-                              size="sm" 
+                            <Button
+                              size="sm"
                               className="w-full md:w-auto text-[10px] font-black tracking-widest uppercase rounded-xl bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20"
                               onClick={async (e) => {
                                 e.stopPropagation()
-                                const supabase = createClient()
-                                await supabase.from('Booking').update({ status: 'CHECKED_IN' } as any).eq('id', booking.id)
+                                await client.mutate({
+                                  mutation: UPDATE_BOOKING,
+                                  variables: { id: booking.id, input: { status: 'CHECKED_IN' } }
+                                })
                                 window.location.reload() // simple refresh
                               }}
                             >
                               Check In
                             </Button>
                           )}
-                          
+
                           {booking.status === 'CHECKED_IN' && getTotalDue(booking) > 0 && (
-                            <Button 
-                              size="sm" 
+                            <Button
+                              size="sm"
                               className="w-full md:w-auto text-[10px] font-black tracking-widest uppercase rounded-xl bg-blue-500 hover:bg-blue-600 shadow-md shadow-blue-500/20"
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -611,8 +705,8 @@ function BookingList({
                           {booking.status === 'CHECKED_IN' && getTotalDue(booking) <= 0 && (
                             <AlertDialog>
                               <AlertDialogTrigger render={
-                                <Button 
-                                  size="sm" 
+                                <Button
+                                  size="sm"
                                   className="w-full md:w-auto text-[10px] font-black tracking-widest uppercase rounded-xl bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-500/20"
                                   onClick={(e) => e.stopPropagation()}
                                 />
@@ -631,8 +725,10 @@ function BookingList({
                                   <AlertDialogAction
                                     onClick={async (e) => {
                                       e.stopPropagation()
-                                      const supabase = createClient()
-                                      await supabase.from('Booking').update({ status: 'CHECKED_OUT', actualCheckOut: new Date().toISOString() } as any).eq('id', booking.id)
+                                      await client.mutate({
+                                        mutation: UPDATE_BOOKING,
+                                        variables: { id: booking.id, input: { status: 'CHECKED_OUT', actualCheckOut: new Date().toISOString() } }
+                                      })
                                       window.location.reload()
                                     }}
                                   >

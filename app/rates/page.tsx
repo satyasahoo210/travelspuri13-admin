@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useProperty } from '@/components/providers/property-provider';
-import { createClient } from '@/lib/utils/supabase/client';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,12 +13,103 @@ import { Calendar as CalendarIcon, Tag, Trash2, ArrowRight, TrendingUp, Loader2 
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
+interface GqlRoomType {
+  id: string;
+  name: string;
+  defaultPrice: number;
+}
+
+interface GqlRateOverride {
+  id: string;
+  roomTypeId: string;
+  startDate: string;
+  endDate: string;
+  rate: number;
+  RoomType?: {
+    id: string;
+    name: string;
+    defaultPrice: number;
+  };
+}
+
+interface RoomTypesQueryData {
+  roomTypes: GqlRoomType[];
+}
+
+interface RateOverridesQueryData {
+  rateOverrides: GqlRateOverride[];
+}
+
+interface CreateRateOverrideMutationData {
+  createRateOverride: GqlRateOverride;
+}
+
+interface CreateRateOverrideMutationVariables {
+  input: {
+    roomTypeId: string;
+    startDate: string;
+    endDate: string;
+    rate: number;
+  };
+}
+
+interface DeleteRateOverrideMutationData {
+  deleteRateOverride: GqlRateOverride;
+}
+
+interface DeleteRateOverrideMutationVariables {
+  id: string;
+}
+
+const GET_ROOM_TYPES: TypedDocumentNode<RoomTypesQueryData, { propertyId: string }> = gql`
+  query GetRoomTypes($propertyId: String!) {
+    roomTypes(propertyId: $propertyId) {
+      id
+      name
+      defaultPrice
+    }
+  }
+`;
+
+const GET_RATE_OVERRIDES: TypedDocumentNode<RateOverridesQueryData> = gql`
+  query GetRateOverrides {
+    rateOverrides {
+      id
+      roomTypeId
+      startDate
+      endDate
+      rate
+      RoomType {
+        id
+        name
+        defaultPrice
+      }
+    }
+  }
+`;
+
+const CREATE_RATE_OVERRIDE: TypedDocumentNode<CreateRateOverrideMutationData, CreateRateOverrideMutationVariables> = gql`
+  mutation CreateRateOverride($input: CreateRateOverrideInput!) {
+    createRateOverride(input: $input) {
+      id
+      roomTypeId
+      startDate
+      endDate
+      rate
+    }
+  }
+`;
+
+const DELETE_RATE_OVERRIDE: TypedDocumentNode<DeleteRateOverrideMutationData, DeleteRateOverrideMutationVariables> = gql`
+  mutation DeleteRateOverride($id: ID!) {
+    deleteRateOverride(id: $id) {
+      id
+    }
+  }
+`;
+
 export default function RatesPage() {
   const { currentProperty } = useProperty();
-  const supabase = createClient();
-  const [roomTypes, setRoomTypes] = useState<any[]>([]);
-  const [overrides, setOverrides] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [newOverride, setNewOverride] = useState({
     roomTypeId: '',
@@ -26,52 +118,59 @@ export default function RatesPage() {
     rate: ''
   });
 
-  const loadData = async () => {
-    if (!currentProperty) return;
-    setLoading(true);
+  const { data: rtData, loading: rtLoading } = useQuery(GET_ROOM_TYPES, {
+    variables: { propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id,
+  });
 
-    const [rtRes, ovRes] = await Promise.all([
-      supabase.from('RoomType').select('*').eq('propertyId', currentProperty.id),
-      supabase.from('RateOverride').select('*, RoomType(*)').eq('tenantId', currentProperty.tenantId)
-    ]);
+  const { data: ovData, loading: ovLoading, refetch: refetchOverrides } = useQuery(GET_RATE_OVERRIDES, {
+    skip: !currentProperty?.id,
+  });
 
-    setRoomTypes(rtRes.data || []);
-    setOverrides(ovRes.data || []);
-    setLoading(false);
-  };
+  const [createOverride] = useMutation(CREATE_RATE_OVERRIDE);
+  const [deleteOverrideMut] = useMutation(DELETE_RATE_OVERRIDE);
 
-  useEffect(() => {
-    loadData();
-  }, [currentProperty]);
+  const roomTypes = rtData?.roomTypes || [];
+  const overrides = ovData?.rateOverrides || [];
+  const loading = rtLoading || ovLoading;
 
   const handleCreateOverride = async () => {
     if (!newOverride.roomTypeId || !newOverride.startDate || !newOverride.endDate || !newOverride.rate || !currentProperty) return;
 
     setIsSubmitting(true);
-    const { error } = await supabase.from('RateOverride').insert({
-      roomTypeId: newOverride.roomTypeId,
-      tenantId: currentProperty.tenantId,
-      startDate: newOverride.startDate,
-      endDate: newOverride.endDate,
-      rate: parseFloat(newOverride.rate)
-    });
-
-    if (!error) {
-      await loadData();
+    try {
+      await createOverride({
+        variables: {
+          input: {
+            roomTypeId: newOverride.roomTypeId,
+            startDate: newOverride.startDate,
+            endDate: newOverride.endDate,
+            rate: parseFloat(newOverride.rate)
+          }
+        }
+      });
+      await refetchOverrides();
       setNewOverride({
         roomTypeId: '',
         startDate: '',
         endDate: '',
         rate: ''
       });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   const deleteOverride = async (id: string) => {
-    const { error } = await supabase.from('RateOverride').delete().eq('id', id);
-    if (!error) {
-      setOverrides(overrides.filter(o => o.id !== id));
+    try {
+      await deleteOverrideMut({
+        variables: { id }
+      });
+      await refetchOverrides();
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -108,7 +207,7 @@ export default function RatesPage() {
                 onChange={e => setNewOverride({...newOverride, roomTypeId: e.target.value})}
               >
                 <option value="">Select a type...</option>
-                {roomTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {roomTypes.map((t: GqlRoomType) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
 
@@ -179,7 +278,7 @@ export default function RatesPage() {
                     <p className="font-black uppercase tracking-widest text-[11px]">No rate overrides scheduled</p>
                   </div>
                 ) : (
-                  overrides.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).map((ov) => {
+                  overrides.sort((a: GqlRateOverride, b: GqlRateOverride) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).map((ov: GqlRateOverride) => {
                     const roomType = ov.RoomType;
                     return (
                       <motion.div

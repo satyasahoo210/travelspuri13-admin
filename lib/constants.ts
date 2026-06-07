@@ -1,5 +1,7 @@
 export const STORAGE_KEYS = {
   TOKEN: 'pms_token',
+  REFRESH_TOKEN: 'pms_refresh_token',
+  REMEMBER_ME: 'pms_remember_me',
   USER: 'pms_user',
   TENANT_ID: 'pms_tenant_id',
   PROPERTY_ID: 'pms_property_id',

@@ -4,7 +4,7 @@ import { useAuth } from '@/components/providers/auth-provider'
 import { useProperty } from '@/components/providers/property-provider'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -24,11 +24,8 @@ import { createClient } from '@/lib/utils/supabase/client'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertCircle,
-  Calendar,
   CheckCircle2,
   Coins,
-  DollarSign,
-  Filter,
   Loader2,
   Pencil,
   Plus,
@@ -38,7 +35,6 @@ import {
   Trash2,
   Wallet,
   X,
-  XCircle,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 

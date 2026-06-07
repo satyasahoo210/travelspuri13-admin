@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SearchableCombobox } from '@/components/ui/searchable-combobox'
+import { gql, TypedDocumentNode } from '@apollo/client'
+import { useQuery, useMutation } from '@apollo/client/react'
 import {
   Select,
   SelectContent,
@@ -11,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tables } from '@/database.types'
 import { PAYMENT_METHODS } from '@/lib/constants'
 import { createClient } from '@/lib/utils/supabase/client'
 import { differenceInCalendarDays, format } from 'date-fns'
@@ -19,10 +20,144 @@ import { fromZonedTime } from 'date-fns-tz'
 import { AlertTriangle, Calendar, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, DollarSign, Home, Loader2, Search, ShieldCheck, UserPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-type Guest = Pick<Tables<'Guest'>, 'id' | 'name' | 'phone'>
-type Room = Pick<Tables<'Room'>, 'id' | 'roomNumber' | 'roomTypeId' | 'status'> & {
-  RoomType: Pick<Tables<'RoomType'>, 'propertyId' | 'defaultPrice' | 'name'> | null
+interface GqlFormGuest {
+  id: string;
+  name: string;
+  phone?: string | null;
 }
+
+interface GqlFormRoom {
+  id: string;
+  roomNumber: string;
+  roomTypeId: string;
+  status: string;
+  RoomType?: {
+    id: string;
+    defaultPrice: number;
+    name: string;
+  } | null;
+}
+
+interface GqlFormActiveBookingRoom {
+  id: string;
+  roomId?: string | null;
+  checkInDate?: string | null;
+  checkOutDate?: string | null;
+  Booking?: {
+    id: string;
+    status: string;
+    checkInDate: string;
+    checkOutDate: string;
+  } | null;
+}
+
+interface BookingFormData {
+  guests: GqlFormGuest[];
+  rooms: GqlFormRoom[];
+  activeBookingRooms: GqlFormActiveBookingRoom[];
+}
+
+interface BookingFormVariables {
+  propertyId: string;
+}
+
+interface CreateGuestMutationData {
+  createGuest: {
+    id: string;
+    name: string;
+  };
+}
+
+interface CreateGuestMutationVariables {
+  input: {
+    name: string;
+    phone: string;
+    email?: string;
+    address?: string;
+    idProofType?: string;
+    idProofNumber?: string;
+    idProofUrl?: string | null;
+    tenantId: string;
+  };
+}
+
+interface CreateBookingMutationData {
+  createBooking: {
+    id: string;
+  };
+}
+
+interface CreateBookingMutationVariables {
+  input: {
+    guestId: string;
+    propertyId: string;
+    source: string;
+    checkInDate: string;
+    checkOutDate: string;
+    rooms: Array<{
+      roomTypeId: string;
+      quantity: number;
+      roomId?: string | null;
+      priceOverride?: number | null;
+    }>;
+    adults?: number | null;
+    children?: number | null;
+    notes?: string | null;
+    waiveLastDayCharge?: boolean | null;
+    advanceAmount?: number | null;
+    advanceMethod?: string | null;
+  };
+}
+
+const GET_BOOKING_FORM_DATA: TypedDocumentNode<BookingFormData, BookingFormVariables> = gql`
+  query GetBookingFormData($propertyId: String!) {
+    guests {
+      id
+      name
+      phone
+    }
+    rooms(propertyId: $propertyId) {
+      id
+      roomNumber
+      roomTypeId
+      status
+      RoomType {
+        id
+        defaultPrice
+        name
+      }
+    }
+    activeBookingRooms(propertyId: $propertyId) {
+      id
+      roomId
+      checkInDate
+      checkOutDate
+      Booking {
+        id
+        status
+        checkInDate
+        checkOutDate
+      }
+    }
+  }
+`;
+
+const CREATE_GUEST: TypedDocumentNode<CreateGuestMutationData, CreateGuestMutationVariables> = gql`
+  mutation CreateGuestForBookingForm($input: CreateGuestInput!) {
+    createGuest(input: $input) {
+      id
+      name
+    }
+  }
+`;
+
+const CREATE_BOOKING: TypedDocumentNode<CreateBookingMutationData, CreateBookingMutationVariables> = gql`
+  mutation CreateBookingForBookingForm($input: CreateBookingInput!) {
+    createBooking(input: $input) {
+      id
+    }
+  }
+`;
 
 export function BookingForm({
   onSuccess,
@@ -41,8 +176,18 @@ export function BookingForm({
 
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
-  const [guests, setGuests] = useState<Guest[]>([])
-  const [rooms, setRooms] = useState<Room[]>([])
+
+  const { data: queryData, loading: queryLoading } = useQuery(GET_BOOKING_FORM_DATA, {
+    variables: { propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id,
+  });
+
+  const [createGuest] = useMutation(CREATE_GUEST)
+  const [createBooking] = useMutation(CREATE_BOOKING)
+
+  const guests = queryData?.guests || []
+  const rooms = queryData?.rooms || []
+  const activeBookings = queryData?.activeBookingRooms || []
 
   const [isQuickAddGuest, setIsQuickAddGuest] = useState(false)
   const [quickGuest, setQuickGuest] = useState({
@@ -86,57 +231,23 @@ export function BookingForm({
 
   const [roomSearchQuery, setRoomSearchQuery] = useState('')
   const [collapsedRoomTypes, setCollapsedRoomTypes] = useState<Record<string, boolean>>({})
-  const [activeBookings, setActiveBookings] = useState<any[]>([])
-
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!currentProperty?.id) return
-
-      const { data: guestData } = await supabase
-        .from('Guest')
-        .select('id, name, phone')
-        .order('name')
-      const { data: roomData } = await supabase
-        .from('Room')
-        .select('id, roomNumber, roomTypeId, status, RoomType!inner(propertyId, defaultPrice, name)')
-        .eq('RoomType.propertyId', currentProperty.id)
-
-      if (guestData) setGuests(guestData)
-      if (roomData) setRooms(roomData as any)
-    }
-
-    fetchData()
-  }, [currentProperty?.id])
-
-  useEffect(() => {
-    const fetchActiveBookings = async () => {
-      if (!currentProperty?.id) return
-      const { data } = await supabase
-        .from('BookingRoom')
-        .select(`
-          id,
-          roomId,
-          checkInDate,
-          checkOutDate,
-          Booking!inner(id, status, checkInDate, checkOutDate)
-        `)
-        .eq('Booking.propertyId', currentProperty.id)
-        .neq('Booking.status', 'CANCELLED')
-        .neq('Booking.status', 'CHECKED_OUT')
-
-      if (data) {
-        setActiveBookings(data)
-      }
-    }
-    fetchActiveBookings()
-  }, [currentProperty?.id])
 
   const getRoomOverbookingStay = (roomId: string) => {
     console.log(roomId)
     if (!formData.checkIn || !formData.checkOut || !currentProperty) return null
 
-    const checkinTime = currentProperty.settings?.checkinTime || "08:00"
-    const checkoutTime = currentProperty.settings?.checkoutTime || "07:00"
+    const settings = (() => {
+      if (!currentProperty?.settings) return null
+      try {
+        return typeof currentProperty.settings === 'string'
+          ? JSON.parse(currentProperty.settings)
+          : currentProperty.settings
+      } catch {
+        return null
+      }
+    })()
+    const checkinTime = settings?.checkinTime || "08:00"
+    const checkoutTime = settings?.checkoutTime || "07:00"
     let selStart: Date
     let selEnd: Date
     if (currentProperty.timezone) {
@@ -147,7 +258,7 @@ export function BookingForm({
       selEnd = new Date(formData.checkOut)
     }
 
-    return activeBookings.find(stay => {
+    return activeBookings.find((stay: GqlFormActiveBookingRoom) => {
       if (stay.roomId !== roomId) return false
 
       const startVal = stay.checkInDate || stay.Booking?.checkInDate
@@ -169,8 +280,18 @@ export function BookingForm({
 
     let nights = differenceInCalendarDays(end, start)
     const checkOutTimeStr = format(end, 'HH:mm:ss')
-    const propCheckOutTime = currentProperty.settings?.checkoutTime
-      ? `${currentProperty.settings.checkoutTime}:00`
+    const settings = (() => {
+      if (!currentProperty?.settings) return null
+      try {
+        return typeof currentProperty.settings === 'string'
+          ? JSON.parse(currentProperty.settings)
+          : currentProperty.settings
+      } catch {
+        return null
+      }
+    })()
+    const propCheckOutTime = settings?.checkoutTime
+      ? `${settings.checkoutTime}:00`
       : (currentProperty.checkOutTime || '07:00:00')
 
     if (checkOutTimeStr > propCheckOutTime) {
@@ -190,7 +311,7 @@ export function BookingForm({
     let subtotal = 0
 
     selectedRooms.forEach((roomId) => {
-      const room = rooms.find((r) => r.id === roomId)
+      const room = rooms.find((r: GqlFormRoom) => r.id === roomId)
       if (room) {
         const customRate = getSafeRate(roomId)
         const rate = customRate
@@ -200,8 +321,18 @@ export function BookingForm({
       }
     })
 
-    const taxEnabled = currentProperty?.settings?.defaultTaxEnabled !== false
-    const taxRate = currentProperty?.settings?.taxAmount ?? currentProperty?.taxPercentage ?? 0
+    const settings = (() => {
+      if (!currentProperty?.settings) return null
+      try {
+        return typeof currentProperty.settings === 'string'
+          ? JSON.parse(currentProperty.settings)
+          : currentProperty.settings
+      } catch {
+        return null
+      }
+    })()
+    const taxEnabled = settings?.defaultTaxEnabled !== false
+    const taxRate = settings?.taxAmount ?? currentProperty?.taxPercentage ?? 0
     const taxVal = taxEnabled ? subtotal * (taxRate / 100) : 0
     const totalAmount = subtotal + taxVal
 
@@ -216,8 +347,8 @@ export function BookingForm({
   const pricing = getPricingSummary()
 
   // Filter out maintenance and search query
-  const bookableRooms = rooms.filter((r) => r.status !== 'MAINTENANCE')
-  const filteredRooms = bookableRooms.filter((r) => {
+  const bookableRooms = rooms.filter((r: GqlFormRoom) => r.status !== 'MAINTENANCE')
+  const filteredRooms = bookableRooms.filter((r: GqlFormRoom) => {
     const query = roomSearchQuery.toLowerCase()
     return (
       r.roomNumber.toLowerCase().includes(query) ||
@@ -226,23 +357,23 @@ export function BookingForm({
   })
 
   // Room type grouping
-  const roomsByRoomType = filteredRooms.reduce((acc, room) => {
+  const roomsByRoomType = filteredRooms.reduce((acc: Record<string, GqlFormRoom[]>, room: GqlFormRoom) => {
     const typeName = room.RoomType?.name || 'Standard'
     if (!acc[typeName]) acc[typeName] = []
     acc[typeName].push(room)
     return acc
-  }, {} as Record<string, Room[]>)
+  }, {} as Record<string, GqlFormRoom[]>)
 
   // Sort room numbers numerically
   Object.keys(roomsByRoomType).forEach((typeName) => {
-    roomsByRoomType[typeName].sort((a, b) =>
+    roomsByRoomType[typeName].sort((a: GqlFormRoom, b: GqlFormRoom) =>
       a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' })
     )
   })
 
-  const handleSelectAllRoomType = (typeName: string, typeRooms: Room[]) => {
-    const typeRoomIds = typeRooms.map((r) => r.id)
-    const allSelected = typeRoomIds.every((id) => selectedRooms.includes(id))
+  const handleSelectAllRoomType = (typeName: string, typeRooms: GqlFormRoom[]) => {
+    const typeRoomIds = typeRooms.map((r: GqlFormRoom) => r.id)
+    const allSelected = typeRoomIds.every((id: string) => selectedRooms.includes(id))
     if (allSelected) {
       setSelectedRooms((prev) => prev.filter((id) => !typeRoomIds.includes(id)))
     } else {
@@ -308,29 +439,39 @@ export function BookingForm({
           idProofUrl = uploadData.path
         }
 
-        const { data: newGuest, error: guestError } = await supabase
-          .from('Guest')
-          .insert([
-            {
+        const { data: newGuestData } = await createGuest({
+          variables: {
+            input: {
               name: quickGuest.name,
               phone: quickGuest.phone,
-              email: quickGuest.email,
-              address: quickGuest.address,
-              idProofType: quickGuest.idProofType,
-              idProofNumber: quickGuest.idProofNumber,
+              email: quickGuest.email || undefined,
+              address: quickGuest.address || undefined,
+              idProofType: quickGuest.idProofType || undefined,
+              idProofNumber: quickGuest.idProofNumber || undefined,
               idProofUrl: idProofUrl,
               tenantId: user.tenantId,
-            },
-          ])
-          .select()
-          .single()
+            }
+          }
+        })
 
-        if (guestError) throw guestError
-        finalGuestId = newGuest.id
+        if (!newGuestData?.createGuest?.id) {
+          throw new Error('Failed to create guest')
+        }
+        finalGuestId = newGuestData.createGuest.id
       }
 
-      const checkinTime = currentProperty?.settings?.checkinTime || "08:00"
-      const checkoutTime = currentProperty?.settings?.checkoutTime || "07:00"
+      const settings = (() => {
+        if (!currentProperty?.settings) return null
+        try {
+          return typeof currentProperty.settings === 'string'
+            ? JSON.parse(currentProperty.settings)
+            : currentProperty.settings
+        } catch {
+          return null
+        }
+      })()
+      const checkinTime = settings?.checkinTime || "08:00"
+      const checkoutTime = settings?.checkoutTime || "07:00"
 
       // Timezone parsing
       let checkInDateStr = formData.checkIn + " " + checkinTime
@@ -345,67 +486,42 @@ export function BookingForm({
         checkOutDateStr = new Date(formData.checkOut).toISOString()
       }
 
-      // 1. Create the Master Booking (Folio)
-      const { data: booking, error: bError } = await supabase
-        .from('Booking')
-        .insert([
-          {
+      const roomsInput = selectedRooms.map(roomId => {
+        const selectedRoom = rooms.find((r: GqlFormRoom) => r.id === roomId)
+        const customRate = getSafeRate(roomId)
+        const overrideRate = customRate ? parseFloat(customRate) : null
+        return {
+          roomTypeId: selectedRoom?.roomTypeId || '',
+          quantity: 1,
+          roomId,
+          priceOverride: overrideRate,
+        }
+      })
+
+      const advAmt = parseFloat(advanceAmount)
+
+      const { data: bData } = await createBooking({
+        variables: {
+          input: {
             guestId: finalGuestId,
             propertyId: currentProperty.id,
-            tenantId: user.tenantId,
+            source: 'DIRECT',
             checkInDate: checkInDateStr,
             checkOutDate: checkOutDateStr,
+            rooms: roomsInput,
             adults: parseInt(formData.adults),
             children: parseInt(formData.children),
-            totalAmount: pricing.totalAmount,
-            notes: formData.notes,
+            notes: formData.notes || null,
             waiveLastDayCharge: formData.waiveLastDayCharge,
-            status: 'CONFIRMED',
-          },
-        ])
-        .select()
-        .single()
-
-      if (bError) throw bError
-
-      // 2. Create Relational Room Assignments (BookingRoom) for each selected room
-      for (const roomId of selectedRooms) {
-        const selectedRoom = rooms.find((r) => r.id === roomId)
-        if (selectedRoom) {
-          const customRate = getSafeRate(roomId)
-          const overrideRate = customRate ? parseFloat(customRate) : null
-          const { error: brError } = await supabase.from('BookingRoom').insert([
-            {
-              bookingId: booking.id,
-              roomId,
-              roomTypeId: selectedRoom.roomTypeId,
-              priceOverride: overrideRate,
-              status: 'CONFIRMED',
-            },
-          ])
-
-          if (brError) throw brError
+            advanceAmount: advAmt > 0 ? advAmt : null,
+            advanceMethod: advAmt > 0 ? advanceMethod : null,
+          }
         }
+      })
+
+      if (bData?.createBooking?.id) {
+        if (onSuccess) onSuccess(bData.createBooking.id)
       }
-
-      // 3. Create Advance Payment (Optional)
-      const advAmt = parseFloat(advanceAmount)
-      if (advAmt > 0) {
-        const { error: pError } = await supabase.from('Payment').insert([
-          {
-            bookingId: booking.id,
-            tenantId: user.tenantId,
-            amount: advAmt,
-            method: advanceMethod,
-            status: pricing.totalAmount <= advAmt ? 'PAID' : 'PARTIAL',
-            notes: 'Advance Booking Payment',
-          },
-        ])
-
-        if (pError) throw pError
-      }
-
-      if (onSuccess) onSuccess(booking.id)
     } catch (err) {
       console.error('Error creating booking:', err)
     } finally {
@@ -545,10 +661,11 @@ export function BookingForm({
                 {Object.keys(roomsByRoomType).length === 0 ? (
                   <p className="text-sm font-bold text-slate-400 text-center py-8">No matching rooms available.</p>
                 ) : (
-                  Object.entries(roomsByRoomType).map(([typeName, typeRooms]) => {
+                  Object.entries(roomsByRoomType).map(([typeName, rawTypeRooms]) => {
+                    const typeRooms = rawTypeRooms as GqlFormRoom[]
                     const isCollapsed = collapsedRoomTypes[typeName]
-                    const typeRoomIds = typeRooms.map((r) => r.id)
-                    const allSelected = typeRoomIds.every((id) => selectedRooms.includes(id))
+                    const typeRoomIds = typeRooms.map((r: GqlFormRoom) => r.id)
+                    const allSelected = typeRoomIds.every((id: string) => selectedRooms.includes(id))
 
                     return (
                       <div key={typeName} className="space-y-3 border border-slate-100 rounded-2xl p-4 bg-slate-50/30">
@@ -574,7 +691,7 @@ export function BookingForm({
 
                         {!isCollapsed && (
                           <div className="grid grid-cols-2 gap-3 pt-2">
-                            {typeRooms.map((room) => {
+                            {typeRooms.map((room: GqlFormRoom) => {
                               const isSelected = selectedRooms.includes(room.id)
                               const overlapStay = getRoomOverbookingStay(room.id)
 
@@ -639,7 +756,7 @@ export function BookingForm({
 
               <div className="space-y-4">
                 {selectedRooms.map((roomId) => {
-                  const room = rooms.find((r) => r.id === roomId)
+                  const room = rooms.find((r: GqlFormRoom) => r.id === roomId)
                   if (!room) return null
                   return (
                     <div key={roomId} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
@@ -777,7 +894,7 @@ export function BookingForm({
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Select Guest</Label>
                   <SearchableCombobox
-                    options={guests.map((g) => ({
+                    options={guests.map((g: GqlFormGuest) => ({
                       value: g.id,
                       label: `${g.name} ${g.phone ? `(${g.phone})` : ''}`,
                     }))}
@@ -862,7 +979,7 @@ export function BookingForm({
                   <div>
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Guest Details</p>
                     <p className="font-black text-slate-900 text-sm">
-                      {isQuickAddGuest ? quickGuest.name : guests.find((g) => g.id === formData.guestId)?.name}
+                      {isQuickAddGuest ? quickGuest.name : guests.find((g: GqlFormGuest) => g.id === formData.guestId)?.name}
                     </p>
                   </div>
                   <div className="text-right">
@@ -874,7 +991,7 @@ export function BookingForm({
                 <div className="space-y-3 pb-4 border-b border-slate-200">
                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Selected Rooms</p>
                   {selectedRooms.map((roomId) => {
-                    const room = rooms.find((r) => r.id === roomId)
+                    const room = rooms.find((r: GqlFormRoom) => r.id === roomId)
                     if (!room) return null
                     const customRate = getSafeRate(roomId)
                     const rate = customRate ? parseFloat(customRate) : (Number(room.RoomType?.defaultPrice) || 0)

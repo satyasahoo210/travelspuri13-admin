@@ -48,11 +48,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(cachedUser);
 
         // Verify token & get fresh profile in the background
-        const res = await fetch(`/api/v1/auth/profile`, {
+        let res = await fetch(`/api/v1/auth/profile`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
         });
+
+        if (res.status === 401) {
+          const rememberMe = localStorage.getItem(STORAGE_KEYS.REMEMBER_ME) === 'true';
+          const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+
+          if (rememberMe && refreshToken) {
+            console.log('Token expired, attempting refresh...');
+            const refreshRes = await fetch(`/api/v1/auth/refresh`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ refresh_token: refreshToken }),
+            });
+
+            if (refreshRes.ok) {
+              const refreshData = await refreshRes.json();
+              localStorage.setItem(STORAGE_KEYS.TOKEN, refreshData.access_token);
+              if (refreshData.refresh_token) {
+                localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshData.refresh_token);
+              }
+              localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(refreshData.user));
+              localStorage.setItem(STORAGE_KEYS.TENANT_ID, refreshData.user.tenantId);
+
+              // Retry fetching the profile with the new token
+              res = await fetch(`/api/v1/auth/profile`, {
+                headers: {
+                  'Authorization': `Bearer ${refreshData.access_token}`,
+                },
+              });
+            }
+          }
+        }
 
         if (!res.ok) {
           throw new Error('Session expired');
@@ -66,6 +99,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Session validation failed:', err);
         // Clear expired credentials
         localStorage.removeItem(STORAGE_KEYS.TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.REMEMBER_ME);
         localStorage.removeItem(STORAGE_KEYS.USER);
         localStorage.removeItem(STORAGE_KEYS.TENANT_ID);
         localStorage.removeItem(STORAGE_KEYS.PROPERTY_ID);
@@ -80,6 +115,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     localStorage.removeItem(STORAGE_KEYS.TOKEN)
+    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
+    localStorage.removeItem(STORAGE_KEYS.REMEMBER_ME)
     localStorage.removeItem(STORAGE_KEYS.USER)
     localStorage.removeItem(STORAGE_KEYS.TENANT_ID)
     localStorage.removeItem(STORAGE_KEYS.PROPERTY_ID)

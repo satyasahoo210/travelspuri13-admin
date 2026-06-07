@@ -51,6 +51,10 @@ export default function LoginPage() {
 
       // Store credentials locally
       localStorage.setItem(STORAGE_KEYS.TOKEN, data.access_token);
+      if (data.refresh_token) {
+        localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, data.refresh_token);
+      }
+      localStorage.setItem(STORAGE_KEYS.REMEMBER_ME, String(rememberMe));
       localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(data.user));
       localStorage.setItem(STORAGE_KEYS.TENANT_ID, data.user.tenantId);
 

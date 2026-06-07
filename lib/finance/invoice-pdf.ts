@@ -1,39 +1,77 @@
-import { Tables } from '@/database.types'
-import { differenceInCalendarDays, differenceInDays, format } from 'date-fns'
+import { differenceInCalendarDays, format } from 'date-fns'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-type Booking = Tables<'Booking'> & {
-  Guest: Tables<'Guest'> | null
-  Payment:
-    | Pick<Tables<'Payment'>, 'amount' | 'method' | 'status' | 'createdAt'>[]
-    | null
+type Guest = {
+  name: string
+  phone: string | null
+  address: string | null
 }
 
-type BookingRoom = Tables<'BookingRoom'> & {
-  Room: Tables<'Room'> | null
-  RoomType: Tables<'RoomType'> | null
+type RoomType = {
+  id: string
+  name: string
+  defaultPrice: number | null
 }
 
-type BookingService = Tables<'BookingService'> & {
-  Service: Tables<'Service'> | null
+type Room = {
+  id: string
+  roomNumber: string
 }
 
-type Room = Tables<'Room'> & {
-  RoomType: Tables<'RoomType'> | null
+type BookingRoom = {
+  id: string
+  checkInDate: string | null
+  checkOutDate: string | null
+  priceOverride: number | null
+  RoomType: RoomType | null
+  Room: Room | null
 }
 
-type Service = Tables<'Service'>
-type Property = Tables<'Property'> & {
+type Booking = {
+  id: string
+  adults: number | null
+  children: number | null
+  checkInDate: string
+  checkOutDate: string
+  guestId?: string
+  waiveLastDayCharge: boolean | null
+  Guest: Guest | null
+  source: string | null
+}
+
+type Property = {
+  name: string
+  address: string
+  phone: string | null
+  email: string | null
+  logoUrl: string | null
+  checkOutTime: string | null
+  taxPercentage: number | null
   settings: {
-    defaultTaxEnabled: boolean;
-    taxAmount?: number;
-    checkinTime: string;
-    checkoutTime: string;
-  } | null;
+    checkoutTime: string
+    taxAmount?: number
+  } | null
 }
-type Payment = Tables<'Payment'>
-type PaymentStatus = Tables<'Payment'>['status']
+
+type ServiceType = {
+  id: string
+  name: string
+}
+
+type BookingService = {
+  id: string
+  Service: ServiceType | null
+  quantity: number | null
+  totalPrice: number
+}
+
+type Payment = {
+  id: string
+  amount: number
+  method: string
+  createdAt: string | null
+}
 
 // Helper function to convert numeric amount to Indian Rupee Words
 function amountToWords(amount: number): string {
@@ -133,7 +171,7 @@ const getRoomStayNights = (
 
   const checkOutTimeStr = format(bookingCheckOutDate, 'HH:mm:ss')
   const propCheckOutTime = p.settings?.checkoutTime
-    ? `${p.settings.checkoutTime}:00`
+    ? `${p.settings.checkoutTime}`
     : (p.checkOutTime || '07:00:00')
 
   const itemCheckIn = item.checkInDate ? new Date(item.checkInDate) : bookingCheckInDate
@@ -356,17 +394,17 @@ export const generateInvoicePDF = async (
     currentY += 15
   
     // --- 3. Room Details ---
-    doc.setFontSize(11)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(30, 41, 59)
-    doc.text('ROOM DETAILS', margin, currentY)
-    currentY += 7
+    // doc.setFontSize(11)
+    // doc.setFont('helvetica', 'bold')
+    // doc.setTextColor(30, 41, 59)
+    // doc.text('ROOM DETAILS', margin, currentY)
+    // currentY += 7
   
-    const roomNumbers = assignments.map((a) => a.Room?.roomNumber).filter(Boolean).join(', ')
-    doc.setFont('helvetica', 'normal')
-    doc.text('Room No.: ' + roomNumbers, margin, currentY)
+    // const roomNumbers = assignments.map((a) => a.Room?.roomNumber).filter(Boolean).join(', ')
+    // doc.setFont('helvetica', 'normal')
+    // doc.text('Room No.: ' + roomNumbers, margin, currentY)
 
-    currentY += 12
+    // currentY += 12
 
     // const roomData = assignments.map((a) => [
     //   a.RoomType?.name || 'Standard Room',
@@ -478,18 +516,22 @@ export const generateInvoicePDF = async (
     }
   
     drawTotalRow('Sub Total:', subtotal, currentY)
-    drawTotalRow('Discount:', discount, currentY + 6)
+    if(discount > 0) {
+      drawTotalRow('Discount:', discount, currentY + 6)
+    }
     if (totals.tax > 0 || totals.showTax) {
-      drawTotalRow(`Tax (${property.taxPercentage}%):`, tax, currentY + 12)
+      drawTotalRow(`Tax (${property.settings?.taxAmount ?? property.taxPercentage}%):`, tax, currentY + 12)
     }
   
-    currentY += 22
+    currentY += 18
     doc.setDrawColor(203, 213, 225)
     doc.line(totalColX, currentY - 5, totalValX, currentY - 5)
   
     drawTotalRow('Grand Total:', payableAmount, currentY, true)
     drawTotalRow('Paid Amount:', paidAmount, currentY + 6)
-    drawTotalRow('Balance Due:', dueAmount, currentY + 12, true)
+    if(dueAmount > 0) {
+      drawTotalRow('Balance Due:', dueAmount, currentY + 12, true)
+    }
   
     currentY += 25
   
