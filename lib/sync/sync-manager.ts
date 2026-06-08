@@ -1,8 +1,8 @@
 import { bookingApi } from '../api/bookings';
 import { guestApi } from '../api/guests';
 import { paymentApi } from '../api/payments';
-import { roomApi } from '../api/rooms';
 import { roomTypeApi } from '../api/room-types';
+import { roomApi } from '../api/rooms';
 import { db, getLastSyncTimestamp, setLastSyncTimestamp } from '../db/dexie';
 
 const ENTITIES = ['bookings', 'rooms', 'guests', 'payments', 'roomTypes'] as const;

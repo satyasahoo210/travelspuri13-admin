@@ -1,5 +1,6 @@
 'use client';
 
+import { useAuth } from '@/components/providers/auth-provider';
 import { useOfflineStatus } from '@/hooks/use-offline-status';
 import { SyncManager } from '@/lib/sync/sync-manager';
 import { createContext, useContext, useEffect } from 'react';
@@ -8,25 +9,26 @@ import { useProperty } from './property-provider';
 const SyncContext = createContext<{ syncNow: () => Promise<void> } | null>(null);
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const { isOnline } = useOfflineStatus();
   const { currentProperty } = useProperty();
 
   useEffect(() => {
-    if (isOnline) {
+    if (isOnline && user) {
       // Periodic sync every 2 minutes when online
       const interval = setInterval(() => {
         SyncManager.syncAll();
       }, 120000);
-      
+
       // Sync on mount or when property changes
       SyncManager.syncAll();
-      
+
       return () => clearInterval(interval);
     }
-  }, [isOnline, currentProperty?.id]);
+  }, [isOnline, currentProperty?.id, user]);
 
   const syncNow = async () => {
-    if (isOnline) {
+    if (isOnline && user) {
       await SyncManager.syncAll();
     }
   };
