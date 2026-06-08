@@ -69,11 +69,10 @@ interface GuestProfileQueryData {
 
 interface GuestProfileQueryVariables {
   id: string;
-  propertyId: string;
 }
 
 const GET_GUEST_PROFILE: TypedDocumentNode<GuestProfileQueryData, GuestProfileQueryVariables> = gql`
-  query GetGuestProfile($id: ID!, $propertyId: String!) {
+  query GetGuestProfile($id: ID!) {
     guest(id: $id) {
       id
       name
@@ -91,7 +90,7 @@ const GET_GUEST_PROFILE: TypedDocumentNode<GuestProfileQueryData, GuestProfileQu
       preferences
       notes
     }
-    bookings(propertyId: $propertyId) {
+    bookings(guestId: $id) {
       id
       guestId
       status
@@ -119,17 +118,16 @@ export default function GuestProfilePage() {
   const { currentProperty } = useProperty()
 
   const { data, loading } = useQuery(GET_GUEST_PROFILE, {
-    variables: { id: id || '', propertyId: currentProperty?.id || '' },
+    variables: { id: id || '' },
     skip: !currentProperty?.id || !id,
   });
 
   const guestData = data?.guest;
   const bookings = data?.bookings || [];
-  const guestBookings = bookings.filter((b: GqlBookingWithRoomsAndPayments) => b.guestId === id);
 
   const guest = guestData ? {
     ...guestData,
-    bookings: guestBookings
+    bookings
   } : null;
 
   const idProofUrl = guest?.idProofUrl

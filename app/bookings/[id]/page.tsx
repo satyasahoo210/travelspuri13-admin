@@ -245,6 +245,7 @@ const GET_BOOKING_DETAILS: TypedDocumentNode<GetBookingDetailsResponse, GetBooki
         email
         gstin
         grNumber
+        address
       }
       Property {
         id
