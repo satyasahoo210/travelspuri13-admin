@@ -1,16 +1,16 @@
-'use client'
+'use client';
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Tables } from '@/database.types'
-import { createClient } from '@/lib/utils/supabase/client'
-import { AnimatePresence, motion } from 'framer-motion'
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useMutation, useQuery } from '@apollo/client/react';
 import {
   ArrowLeft,
+  BedDouble,
   Building2,
-  CalendarCheck,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -24,143 +24,194 @@ import {
   MapPin,
   Pencil,
   Percent,
-  Plus,
   RefreshCw,
-  Save,
   Users,
-  X,
-} from 'lucide-react'
-import Image from 'next/image'
-import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+  X
+} from 'lucide-react';
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
-type Property = Omit<Tables<'Property'>, 'settings'> & {
-  settings: {
-    defaultTaxEnabled?: boolean
-    taxAmount?: number
-    checkinTime?: string
-    checkoutTime?: string
-  }
+interface Property {
+  id: string;
+  name: string;
+  address: string;
+  timezone: string;
+  taxPercentage?: number | null;
+  logoUrl?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  settings?: string | null;
+  photos?: string[];
 }
-type RoomType = Tables<'RoomType'>
-type Room = Tables<'Room'> & { RoomType: Pick<RoomType, 'name'> }
+
+interface RoomType {
+  id: string;
+  name: string;
+  capacity: number;
+  defaultPrice?: number | null;
+  propertyId: string;
+  photos?: string[];
+  description?: string | null;
+}
+
+interface Room {
+  id: string;
+  roomNumber: string;
+  roomTypeId: string;
+  status: string;
+  RoomType?: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+interface PropertyDetailsResponse {
+  property: Property;
+  roomTypes: RoomType[];
+  rooms: Room[];
+}
+
+const GET_PROPERTY_DETAILS: TypedDocumentNode<PropertyDetailsResponse, { id: string }> = gql`
+  query GetPropertyDetails($id: String!) {
+    property(id: $id) {
+      id
+      name
+      address
+      timezone
+      taxPercentage
+      logoUrl
+      phone
+      email
+      checkInTime
+      checkOutTime
+      settings
+      photos
+    }
+    roomTypes(propertyId: $id) {
+      id
+      name
+      capacity
+      defaultPrice
+      propertyId
+      photos
+    }
+    rooms(propertyId: $id) {
+      id
+      roomNumber
+      roomTypeId
+      status
+      RoomType {
+        id
+        name
+      }
+    }
+  }
+`;
+
+const UPDATE_ROOM_TYPE: TypedDocumentNode<{ updateRoomType: RoomType }, { id: string, input: any }> = gql`
+  mutation UpdateRoomType($id: ID!, $input: UpdateRoomTypeInput!) {
+    updateRoomType(id: $id, input: $input) {
+      id
+      name
+      defaultPrice
+    }
+  }
+`;
 
 const statusIcons = {
-  AVAILABLE: { icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50', border: 'border-emerald-100' },
-  OCCUPIED: { icon: DoorOpen, color: 'text-primary', bg: 'bg-primary/5', border: 'border-primary/10' },
-  DIRTY: { icon: Eraser, color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-100' },
-  MAINTENANCE: { icon: Construction, color: 'text-rose-500', bg: 'bg-rose-50', border: 'border-rose-100' },
-}
+  AVAILABLE: { icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50' },
+  OCCUPIED: { icon: BedDouble, color: 'text-primary', bg: 'bg-primary/5' },
+  DIRTY: { icon: Eraser, color: 'text-amber-500', bg: 'bg-amber-50' },
+  MAINTENANCE: { icon: Construction, color: 'text-destructive', bg: 'bg-destructive/5' },
+};
 
 export default function PropertyDetailPage() {
-  const params = useParams()
-  const router = useRouter()
-  const supabase = createClient()
-  const propertyId = params.id as string
+  const params = useParams();
+  const router = useRouter();
+  const propertyId = params.id as string;
 
-  const [property, setProperty] = useState<Property | null>(null)
-  const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
-  const [rooms, setRooms] = useState<Room[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [updatingPriceId, setUpdatingPriceId] = useState<string | null>(null)
-  const [newPrice, setNewPrice] = useState('')
-  const [activeImage, setActiveImage] = useState(0)
+  const [property, setProperty] = useState<Property | null>(null);
+  const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const [activeImage, setActiveImage] = useState(0);
+  const [updatingPriceId, setUpdatingPriceId] = useState<string | null>(null);
+  const [newPrice, setNewPrice] = useState('');
+
+  const { data: queryData, loading, refetch } = useQuery(GET_PROPERTY_DETAILS, {
+    variables: { id: propertyId || '' },
+    skip: !propertyId,
+  });
+
+  const [updateRoomType] = useMutation(UPDATE_ROOM_TYPE);
+
+  useEffect(() => {
+    if (queryData) {
+      setProperty(queryData.property);
+      setRoomTypes(queryData.roomTypes || []);
+      setRooms(queryData.rooms || []);
+    }
+  }, [queryData]);
 
   const fetchData = async () => {
     try {
-      setLoading(true)
-      setError(null)
-
-      // Fetch Property details
-      const { data: propData, error: propErr } = await supabase
-        .from('Property')
-        .select('*')
-        .eq('id', propertyId)
-        .single()
-
-      if (propErr) throw propErr
-      setProperty(propData as Property)
-
-      // Fetch Room Types
-      const { data: rtData, error: rtErr } = await supabase
-        .from('RoomType')
-        .select('*')
-        .eq('propertyId', propertyId)
-        .order('name')
-
-      if (rtErr) throw rtErr
-      setRoomTypes(rtData || [])
-
-      // Fetch Rooms
-      const { data: rData, error: rErr } = await supabase
-        .from('Room')
-        .select('*, RoomType(name)')
-        .eq('RoomType.propertyId', propertyId)
-
-      if (rErr) throw rErr
-      setRooms(rData || [])
-
+      setError(null);
+      await refetch();
     } catch (err: any) {
-      console.error(err)
-      setError(err.message || 'Failed to fetch property details')
-    } finally {
-      setLoading(false)
+      console.error(err);
+      setError(err.message || 'Failed to sync property details');
     }
-  }
-
-  useEffect(() => {
-    if (propertyId) {
-      fetchData()
-    }
-  }, [propertyId])
+  };
 
   const handleUpdateBasePrice = async (rtId: string) => {
     if (!newPrice || isNaN(parseFloat(newPrice))) {
-      alert('Please enter a valid price')
-      return
+      alert('Please enter a valid price');
+      return;
     }
 
     try {
-      const priceVal = parseFloat(newPrice)
-      const { error: updateErr } = await supabase
-        .from('RoomType')
-        .update({ defaultPrice: priceVal })
-        .eq('id', rtId)
-
-      if (updateErr) throw updateErr
+      const priceVal = parseFloat(newPrice);
+      await updateRoomType({
+        variables: {
+          id: rtId,
+          input: { defaultPrice: priceVal }
+        }
+      });
 
       // Update state locally
       setRoomTypes(prev =>
         prev.map(rt => (rt.id === rtId ? { ...rt, defaultPrice: priceVal } : rt))
-      )
-      setUpdatingPriceId(null)
-      setNewPrice('')
+      );
+      setUpdatingPriceId(null);
+      setNewPrice('');
     } catch (err: any) {
-      console.error(err)
-      alert(err.message || 'Failed to update base price')
+      console.error(err);
+      alert(err.message || 'Failed to update base price');
     }
-  }
+  };
 
   // Calculate statistics
-  const totalRooms = rooms.length
+  const totalRooms = rooms.length;
   const statusCounts = rooms.reduce(
     (acc, r) => {
-      const status = r.status || 'AVAILABLE'
-      acc[status] = (acc[status] || 0) + 1
-      return acc
+      const status = r.status || 'AVAILABLE';
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
     },
     { AVAILABLE: 0, OCCUPIED: 0, DIRTY: 0, MAINTENANCE: 0 } as Record<string, number>
-  )
+  );
 
-  if (loading) {
+  if (loading && !property) {
     return (
       <div className="h-screen flex flex-col items-center justify-center space-y-4 bg-slate-50">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
         <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Loading Property Details...</p>
       </div>
-    )
+    );
   }
 
   if (error || !property) {
@@ -175,11 +226,22 @@ export default function PropertyDetailPage() {
           </Button>
         </Card>
       </div>
-    )
+    );
   }
 
-  const photos = property.photos || []
-  const hasPhotos = photos.length > 0
+  const photos = property.photos || [];
+  const hasPhotos = photos.length > 0;
+
+  const settings = (() => {
+    if (!property.settings) return {};
+    try {
+      return typeof property.settings === 'string'
+        ? JSON.parse(property.settings)
+        : property.settings;
+    } catch {
+      return {};
+    }
+  })();
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20 p-4 md:p-10 selection:bg-primary/20">
@@ -315,6 +377,7 @@ export default function PropertyDetailPage() {
                       <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
                         <div>
                           <h3 className="font-heading font-black text-lg text-slate-900 uppercase tracking-tight leading-tight">{rt.name}</h3>
+                          {rt.description && <p className="text-slate-500 text-xs font-medium mt-1">{rt.description}</p>}
                         </div>
 
                         {/* Base Price Editor */}
@@ -342,8 +405,8 @@ export default function PropertyDetailPage() {
                                   variant="outline"
                                   size="icon"
                                   onClick={() => {
-                                    setUpdatingPriceId(null)
-                                    setNewPrice('')
+                                    setUpdatingPriceId(null);
+                                    setNewPrice('');
                                   }}
                                   className="h-10 w-10 rounded-xl border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 shrink-0 active:scale-95 transition-all"
                                 >
@@ -355,8 +418,8 @@ export default function PropertyDetailPage() {
                                 <span className="text-xl font-heading font-black text-slate-900">₹{rt.defaultPrice || 0}</span>
                                 <button
                                   onClick={() => {
-                                    setUpdatingPriceId(rt.id)
-                                    setNewPrice(rt.defaultPrice?.toString() || '')
+                                    setUpdatingPriceId(rt.id);
+                                    setNewPrice(rt.defaultPrice?.toString() || '');
                                   }}
                                   className="p-1 text-slate-400 hover:text-primary transition-colors"
                                 >
@@ -390,7 +453,7 @@ export default function PropertyDetailPage() {
                     <Clock className="w-5 h-5 text-slate-400 shrink-0" />
                     <div>
                       <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block leading-none mb-0.5">Check-In</span>
-                      <span className="text-sm font-bold text-slate-700">{property.settings?.checkinTime ?? property.checkInTime ?? '08:00 AM'}</span>
+                      <span className="text-sm font-bold text-slate-700">{settings?.checkinTime ?? property.checkInTime ?? '08:00 AM'}</span>
                     </div>
                   </div>
                 </div>
@@ -400,7 +463,7 @@ export default function PropertyDetailPage() {
                     <Clock className="w-5 h-5 text-slate-400 shrink-0" />
                     <div>
                       <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block leading-none mb-0.5">Check-Out</span>
-                      <span className="text-sm font-bold text-slate-700">{property.settings?.checkoutTime ?? property.checkOutTime ?? '07:00 AM'}</span>
+                      <span className="text-sm font-bold text-slate-700">{settings?.checkoutTime ?? property.checkOutTime ?? '07:00 AM'}</span>
                     </div>
                   </div>
                 </div>
@@ -411,8 +474,8 @@ export default function PropertyDetailPage() {
                     <div>
                       <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block leading-none mb-0.5">Tax Details</span>
                       <span className="text-sm font-bold text-slate-700">
-                        {property.settings?.defaultTaxEnabled !== false
-                          ? `${property.settings?.taxAmount || 12}% GST Enabled`
+                        {settings?.defaultTaxEnabled !== false
+                          ? `${settings?.taxAmount || 12}% GST Enabled`
                           : 'Tax Waived/Disabled'}
                       </span>
                     </div>
@@ -473,8 +536,8 @@ export default function PropertyDetailPage() {
             </Card>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {rooms.sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' })).map(room => {
-                const config = statusIcons[room.status as keyof typeof statusIcons] || statusIcons.AVAILABLE
+              {[...rooms].sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' })).map(room => {
+                const config = statusIcons[room.status as keyof typeof statusIcons] || statusIcons.AVAILABLE;
                 return (
                   <Link key={room.id} href={`/rooms/${room.id}`}>
                     <Card className={`h-full min-h-[110px] cursor-pointer group hover:scale-[1.03] transition-all overflow-hidden border border-slate-200/50 shadow-sm hover:shadow-md ${config.bg} p-4 flex flex-col justify-between`}>
@@ -490,7 +553,7 @@ export default function PropertyDetailPage() {
                       </div>
                     </Card>
                   </Link>
-                )
+                );
               })}
             </div>
           )}
@@ -498,5 +561,5 @@ export default function PropertyDetailPage() {
 
       </div>
     </div>
-  )
+  );
 }

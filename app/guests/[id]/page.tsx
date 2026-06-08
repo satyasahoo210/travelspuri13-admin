@@ -1,11 +1,12 @@
 'use client'
 
+import { useProperty } from '@/components/providers/property-provider'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tables } from '@/database.types'
-import { createClient } from '@/lib/utils/supabase/client'
+import { gql, TypedDocumentNode } from '@apollo/client'
+import { useQuery } from '@apollo/client/react'
 import { format } from 'date-fns'
 import {
   ArrowLeft,
@@ -22,61 +23,120 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
 
-type GuestWithHistory = Tables<'Guest'> & {
-  bookings: Array<Tables<'Booking'> & {
-    BookingRoom: Array<{
-      Room: { roomNumber: string } | null
-    }>
-    Payment: Array<{ amount: number }>
-  }>
+interface GqlGuest {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  tenantId: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  address?: string | null;
+  idProofType?: string | null;
+  idProofNumber?: string | null;
+  idProofUrl?: string | null;
+  gstin?: string | null;
+  grNumber?: string | null;
+  preferences?: string | null;
+  notes?: string | null;
 }
+
+interface GqlBookingWithRoomsAndPayments {
+  id: string;
+  guestId: string;
+  status: string;
+  checkInDate: string;
+  checkOutDate: string;
+  totalAmount?: number | null;
+  BookingRoom: Array<{
+    id: string;
+    Room: {
+      id: string;
+      roomNumber: string;
+    } | null;
+  }>;
+  Payment: Array<{
+    id: string;
+    amount: number;
+  }>;
+}
+
+interface GuestProfileQueryData {
+  guest: GqlGuest | null;
+  bookings: GqlBookingWithRoomsAndPayments[];
+}
+
+interface GuestProfileQueryVariables {
+  id: string;
+  propertyId: string;
+}
+
+const GET_GUEST_PROFILE: TypedDocumentNode<GuestProfileQueryData, GuestProfileQueryVariables> = gql`
+  query GetGuestProfile($id: ID!, $propertyId: String!) {
+    guest(id: $id) {
+      id
+      name
+      phone
+      email
+      idProofType
+      idProofNumber
+      tenantId
+      createdAt
+      updatedAt
+      address
+      idProofUrl
+      gstin
+      grNumber
+      preferences
+      notes
+    }
+    bookings(propertyId: $propertyId) {
+      id
+      guestId
+      status
+      checkInDate
+      checkOutDate
+      totalAmount
+      BookingRoom {
+        id
+        Room {
+          id
+          roomNumber
+        }
+      }
+      Payment {
+        id
+        amount
+      }
+    }
+  }
+`;
 
 export default function GuestProfilePage() {
   const router = useRouter()
-  const { id } = useParams<{id: string}>()
-  const [guest, setGuest] = useState<GuestWithHistory | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [idProofUrl, setIdProofUrl] = useState<string | null>(null)
-  const supabase = createClient()
+  const { id } = useParams<{ id: string }>()
+  const { currentProperty } = useProperty()
 
-  useEffect(() => {
-    const fetchGuestData = async () => {
-      setLoading(true)
-      const { data, error } = await supabase
-        .from('Guest')
-        .select(`
-          *,
-          bookings:Booking(
-            *,
-            BookingRoom(Room(roomNumber)),
-            Payment(amount)
-          )
-        `)
-        .eq('id', id)
-        .single()
+  const { data, loading } = useQuery(GET_GUEST_PROFILE, {
+    variables: { id: id || '', propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id || !id,
+  });
 
-      if (error) {
-        console.error('Error fetching guest data:', error)
-      } else {
-        setGuest(data as any)
-        
-        // Fetch signed URL if path exists
-        if (data.idProofUrl && !data.idProofUrl.startsWith('http')) {
-          const { data: signedData } = await supabase.storage
-            .from('guests')
-            .createSignedUrl(data.idProofUrl, 3600) // 1 hour expiry
-          if (signedData) setIdProofUrl(signedData.signedUrl)
-        } else if (data.idProofUrl) {
-          setIdProofUrl(data.idProofUrl)
-        }
-      }
-      setLoading(false)
-    }
+  const guestData = data?.guest;
+  const bookings = data?.bookings || [];
+  const guestBookings = bookings.filter((b: GqlBookingWithRoomsAndPayments) => b.guestId === id);
 
-    fetchGuestData()
-  }, [id, supabase])
+  const guest = guestData ? {
+    ...guestData,
+    bookings: guestBookings
+  } : null;
+
+  const idProofUrl = guest?.idProofUrl
+    ? (guest.idProofUrl.startsWith('http')
+      ? guest.idProofUrl
+      : `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/guests/${guest.idProofUrl}`)
+    : null;
 
   if (loading) {
     return <GuestProfileSkeleton />
@@ -91,15 +151,15 @@ export default function GuestProfilePage() {
     )
   }
 
-  const totalSpent = guest.bookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0)
+  const totalSpent = guest.bookings.reduce((sum: number, b: GqlBookingWithRoomsAndPayments) => sum + (b.totalAmount || 0), 0)
   const avgSpent = guest.bookings.length > 0 ? totalSpent / guest.bookings.length : 0
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <header className="flex items-center gap-4">
-        <Button 
-          variant="ghost" 
-          size="icon" 
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => router.back()}
           className="rounded-full hover:bg-slate-100"
         >
@@ -202,16 +262,16 @@ export default function GuestProfilePage() {
               {idProofUrl ? (
                 <div className="relative group rounded-2xl overflow-hidden border border-slate-200">
                   <div className="aspect-[4/3] bg-slate-100 flex items-center justify-center">
-                    <img 
-                      src={idProofUrl} 
-                      alt="ID Proof" 
+                    <img
+                      src={idProofUrl}
+                      alt="ID Proof"
                       className="object-cover w-full h-full"
                     />
                   </div>
                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                    <Button 
-                      variant="secondary" 
-                      size="sm" 
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       className="rounded-xl font-black tracking-tighter"
                       onClick={() => window.open(idProofUrl, '_blank')}
                     >
@@ -247,7 +307,7 @@ export default function GuestProfilePage() {
           </div>
 
           <div className="space-y-4">
-            {guest.bookings.sort((a, b) => new Date(b.checkInDate).getTime() - new Date(a.checkInDate).getTime()).map((booking) => (
+            {guest.bookings.sort((a: GqlBookingWithRoomsAndPayments, b: GqlBookingWithRoomsAndPayments) => new Date(b.checkInDate).getTime() - new Date(a.checkInDate).getTime()).map((booking: GqlBookingWithRoomsAndPayments) => (
               <Card key={booking.id} className="rounded-3xl border-slate-200 hover:border-primary/20 transition-all bg-white shadow-sm group overflow-hidden">
                 <CardContent className="p-0 flex flex-col md:flex-row">
                   <div className="p-6 flex-1 grid grid-cols-2 md:grid-cols-3 gap-6 items-center">
@@ -267,7 +327,7 @@ export default function GuestProfilePage() {
                       <div className="flex items-center gap-2">
                         <ImageIcon className="h-4 w-4 text-slate-400" />
                         <span className="text-sm font-black text-slate-900">
-                          Rooms: {booking.BookingRoom.map(br => br.Room?.roomNumber).join(', ') || 'N/A'}
+                          Rooms: {booking.BookingRoom.map((br: any) => br.Room?.roomNumber).join(', ') || 'N/A'}
                         </span>
                       </div>
                       <Badge variant="outline" className="text-[9px] font-black uppercase border-slate-200">

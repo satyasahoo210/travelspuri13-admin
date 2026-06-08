@@ -1,63 +1,107 @@
 'use client';
 
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery } from '@apollo/client/react';
 import { useProperty } from '@/components/providers/property-provider';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tables } from '@/database.types';
-import { createClient } from '@/lib/utils/supabase/client';
 import { AnimatePresence, motion } from 'framer-motion';
 import { History, Mail, Phone, Plus, Search, User } from "lucide-react";
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-type Guest = Tables<'Guest'> & {
-  _count?: {
-    Booking: number;
-  };
+interface GqlGuest {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  tenantId: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  address?: string | null;
+  idProofType?: string | null;
+  idProofNumber?: string | null;
+  idProofUrl?: string | null;
+  gstin?: string | null;
+  grNumber?: string | null;
+  preferences?: string | null;
+  notes?: string | null;
 }
+
+interface GqlBriefBooking {
+  id: string;
+  guestId: string;
+}
+
+interface GuestsAndBookingsData {
+  guests: GqlGuest[];
+  bookings: GqlBriefBooking[];
+}
+
+interface GuestsAndBookingsVariables {
+  propertyId: string;
+}
+
+const GET_GUESTS_AND_BOOKINGS: TypedDocumentNode<GuestsAndBookingsData, GuestsAndBookingsVariables> = gql`
+  query GetGuestsAndBookings($propertyId: String!) {
+    guests {
+      id
+      name
+      phone
+      email
+      tenantId
+      createdAt
+      updatedAt
+      address
+      idProofType
+      idProofNumber
+      idProofUrl
+      gstin
+      grNumber
+      preferences
+      notes
+    }
+    bookings(propertyId: $propertyId) {
+      id
+      guestId
+    }
+  }
+`;
 
 export default function GuestsPage() {
   const router = useRouter();
   const { currentProperty } = useProperty();
   const [search, setSearch] = useState('');
-  const [guests, setGuests] = useState<Guest[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const supabase = createClient();
 
-  useEffect(() => {
-    const fetchGuests = async () => {
-      if (!currentProperty) return;
-      setLoading(true);
-      
-      const { data, error } = await supabase
-        .from('Guest')
-        .select('*, Booking(count)')
-        .eq('tenantId', currentProperty.tenantId)
-        .order('name');
+  const { data, loading } = useQuery(GET_GUESTS_AND_BOOKINGS, {
+    variables: { propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id,
+  });
 
-      if (error) {
-        console.error('Error fetching guests:', error);
-      } else {
-        // Map the count from the join
-        const mappedData = data.map((g: any) => ({
-          ...g,
-          _count: { Booking: g.Booking?.[0]?.count || 0 }
-        }));
-        setGuests(mappedData);
-      }
-      setLoading(false);
+interface MappedGuest extends GqlGuest {
+  _count: {
+    Booking: number;
+  };
+}
+
+  const guestsList = data?.guests || [];
+  const bookingsList = data?.bookings || [];
+
+  const guests: MappedGuest[] = guestsList.map((g: GqlGuest) => {
+    const guestBookings = bookingsList.filter((b: GqlBriefBooking) => b.guestId === g.id);
+    return {
+      ...g,
+      _count: { Booking: guestBookings.length }
     };
+  }).sort((a: MappedGuest, b: MappedGuest) => a.name.localeCompare(b.name));
 
-    fetchGuests();
-  }, [currentProperty, supabase]);
-
-  const filteredGuests = guests?.filter(g => 
+  const filteredGuests = guests?.filter((g: MappedGuest) => 
     g.name.toLowerCase().includes(search.toLowerCase()) ||
-    g.phone?.includes(search) ||
-    g.email?.toLowerCase().includes(search.toLowerCase())
+    (g.phone && g.phone.includes(search)) ||
+    (g.email && g.email.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -94,7 +138,7 @@ export default function GuestsPage() {
               <Skeleton key={i} className="h-48 rounded-[2.5rem]" />
             ))
           ) : (
-            filteredGuests?.map((guest, i) => (
+            filteredGuests?.map((guest: MappedGuest, i: number) => (
               <motion.div
                 key={guest.id}
                 initial={{ opacity: 0, y: 10 }}

@@ -1,115 +1,177 @@
-'use client'
+'use client';
 
-import { CalendarGrid } from '@/components/calendar/calendar-grid'
-import { useProperty } from '@/components/providers/property-provider'
-import { Button } from '@/components/ui/button'
-import { Tables } from '@/database.types'
-import { createClient } from '@/lib/utils/supabase/client'
-import { addDays, differenceInDays, format, startOfDay } from 'date-fns'
-import { toZonedTime } from 'date-fns-tz'
+import { CalendarGrid } from '@/components/calendar/calendar-grid';
+import { useProperty } from '@/components/providers/property-provider';
+import { Button } from '@/components/ui/button';
+import { addDays, differenceInDays, format, startOfDay } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
 import {
   ChevronLeft,
   ChevronRight,
   Download,
   Filter,
   Loader2,
-} from 'lucide-react'
-import { useEffect, useState } from 'react'
+} from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery } from '@apollo/client/react';
 
-type RoomResp = Tables<'Room'> & {
-  RoomType: Tables<'RoomType'>
+interface RoomResp {
+  id: string;
+  roomNumber: string;
+  status: string;
+  roomTypeId: string;
+  RoomType: {
+    id: string;
+    name: string;
+    defaultPrice?: number | null;
+  };
 }
 
-export type BookingAssignment = Tables<'BookingRoom'> & {
-  Booking: Tables<'Booking'> & {
-    Guest: Pick<Tables<'Guest'>, 'name' | 'phone'>
-    Property: Pick<Tables<'Property'>, 'timezone'>
-  }
-  Room: Pick<Tables<'Room'>, 'roomNumber'> | null
+export interface BookingAssignment {
+  id: string;
+  bookingId: string;
+  roomId?: string | null;
+  roomTypeId: string;
+  priceOverride?: number | null;
+  status: string;
+  checkInDate: string;
+  checkOutDate: string;
+  Room?: {
+    id: string;
+    roomNumber: string;
+  } | null;
+  Booking: {
+    id: string;
+    checkInDate: string;
+    checkOutDate: string;
+    status: string;
+    source?: string | null;
+    adults: number;
+    children: number;
+    notes?: string | null;
+    Guest: {
+      id: string;
+      name: string;
+      phone?: string | null;
+    };
+    Property: {
+      id: string;
+      timezone?: string | null;
+    };
+  };
 }
 
-export default function CalendarPage() {
-  const supabase = createClient()
-  const { currentProperty } = useProperty()
-  const [startDate, setStartDate] = useState(startOfDay(new Date()))
-  const [rooms, setRooms] = useState<RoomResp[] | null>(null)
-  const [assignments, setAssignments] = useState<BookingAssignment[] | null>(
-    null,
-  )
-  const [fetching, setFetching] = useState(false)
+interface GetCalendarDataResponse {
+  rooms: RoomResp[];
+  bookingRooms: BookingAssignment[];
+}
 
-  const [filterStatus, setFilterStatus] = useState<string>('ALL')
-
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!currentProperty?.id) return
-
-      setFetching(true)
-      try {
-        const [roomsRes, assignmentsRes] = await Promise.all([
-          supabase
-            .from('Room')
-            .select('*, RoomType!inner(*)')
-            .eq('RoomType.propertyId', currentProperty.id),
-          supabase
-            .from('BookingRoom')
-            .select(
-              '*, Booking!inner(*, Guest(name, phone), Property(timezone)), Room(roomNumber)',
-            )
-            .not('roomId', 'is', null) // Only fetch specific assignments
-            .eq('Booking.propertyId', currentProperty.id),
-        ])
-
-        if (roomsRes.data) {
-          roomsRes.data?.sort((a, b) =>
-            a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }),
-          )
-          setRooms(roomsRes.data)
-        }
-        if (assignmentsRes.data) setAssignments(assignmentsRes.data)
-      } catch (err) {
-        console.error('Error fetching calendar data:', err)
-      } finally {
-        setFetching(false)
+const GET_CALENDAR_DATA: TypedDocumentNode<GetCalendarDataResponse, { propertyId: string }> = gql`
+  query GetCalendarData($propertyId: String!) {
+    rooms(propertyId: $propertyId) {
+      id
+      roomNumber
+      status
+      roomTypeId
+      RoomType {
+        id
+        name
+        defaultPrice
       }
     }
+    bookingRooms(propertyId: $propertyId) {
+      id
+      bookingId
+      roomId
+      roomTypeId
+      priceOverride
+      status
+      checkInDate
+      checkOutDate
+      Room {
+        id
+        roomNumber
+      }
+      Booking {
+        id
+        checkInDate
+        checkOutDate
+        status
+        source
+        adults
+        children
+        notes
+        Guest {
+          id
+          name
+          phone
+        }
+        Property {
+          id
+          timezone
+        }
+      }
+    }
+  }
+`;
 
-    fetchData()
-  }, [currentProperty?.id, supabase])
+export default function CalendarPage() {
+  const { currentProperty } = useProperty();
+  const [startDate, setStartDate] = useState(startOfDay(new Date()));
+  const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
-  const handlePrev = () => setStartDate((prev) => addDays(prev, -7))
-  const handleNext = () => setStartDate((prev) => addDays(prev, 7))
-  const handleToday = () => setStartDate(startOfDay(new Date()))
+  const { data, loading: fetching } = useQuery(GET_CALENDAR_DATA, {
+    variables: { propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id,
+  });
+
+  const rooms = useMemo(() => {
+    if (!data?.rooms) return null;
+    const sorted = [...data.rooms];
+    sorted.sort((a, b) =>
+      a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }),
+    );
+    return sorted;
+  }, [data]);
+
+  const assignments = data?.bookingRooms || null;
+
+  const handlePrev = () => setStartDate((prev) => addDays(prev, -7));
+  const handleNext = () => setStartDate((prev) => addDays(prev, 7));
+  const handleToday = () => setStartDate(startOfDay(new Date()));
 
   const handleExport = () => {
-    if (!assignments) return
+    if (!assignments) return;
     const csvContent =
       'data:text/csv;charset=utf-8,' +
       'Guest Name,Phone,Room,Check-In,Check-Out,Total Days,Status\n' +
       assignments
         .map(
           (a) =>
-            `"${a.Booking.Guest.name}","${a.Booking.Guest.phone}","${a.Room?.roomNumber || a.roomId}","${toZonedTime(a.checkInDate || a.Booking.checkInDate, a.Booking.Property.timezone)}","${toZonedTime(a.checkOutDate || a.Booking.checkOutDate, a.Booking.Property.timezone)}","${differenceInDays(a.checkOutDate || a.Booking.checkOutDate, a.checkInDate || a.Booking.checkInDate)}","${a.status || a.Booking.status}"`,
+            `"${a.Booking.Guest.name}","${a.Booking.Guest.phone || ''}","${a.Room?.roomNumber || a.roomId}","${toZonedTime(a.checkInDate || a.Booking.checkInDate, a.Booking.Property.timezone || 'UTC')}","${toZonedTime(a.checkOutDate || a.Booking.checkOutDate, a.Booking.Property.timezone || 'UTC')}","${differenceInDays(new Date(a.checkOutDate || a.Booking.checkOutDate), new Date(a.checkInDate || a.Booking.checkInDate))}","${a.status || a.Booking.status}"`,
         )
-        .join('\n')
-    const encodedUri = encodeURI(csvContent)
-    const link = document.createElement('a')
-    link.setAttribute('href', encodedUri)
+        .join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
     link.setAttribute(
       'download',
       `bookings_${format(new Date(), 'yyyy-MM-dd')}.csv`,
-    )
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-  const filteredAssignments =
-    assignments?.filter(
+  const filteredAssignments = useMemo(() => {
+    if (!assignments) return [];
+    return assignments.filter(
       (a) =>
         filterStatus === 'ALL' ||
         (a.status || a.Booking.status) === filterStatus,
-    ) || []
+    );
+  }, [assignments, filterStatus]);
 
   return (
     <div className="p-4 md:p-8 max-w-400 mx-auto space-y-6">
@@ -193,5 +255,5 @@ export default function CalendarPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

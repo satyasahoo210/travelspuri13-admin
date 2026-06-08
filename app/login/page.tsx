@@ -12,7 +12,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { createClient } from '@/lib/utils/supabase/client'
+import { STORAGE_KEYS } from '@/lib/constants'
 import Logo from '@/public/logo_large.svg'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertCircle, Hotel, Loader2, Sparkles } from 'lucide-react'
@@ -25,7 +25,6 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const supabase = createClient()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -33,16 +32,32 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword(
-        {
-          email,
-          password,
+      const res = await fetch(`/api/v1/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      )
+        body: JSON.stringify({ email, password }),
+      });
 
-      if (authError) throw authError
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Invalid email or password. Please try again.');
+      }
 
-      // Note: AuthProvider will detect session change and redirect
+      const data = await res.json();
+
+      // Store credentials locally
+      localStorage.setItem(STORAGE_KEYS.TOKEN, data.access_token);
+      if (data.refresh_token) {
+        localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, data.refresh_token);
+      }
+      localStorage.setItem(STORAGE_KEYS.REMEMBER_ME, String(rememberMe));
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(data.user));
+      localStorage.setItem(STORAGE_KEYS.TENANT_ID, data.user.tenantId);
+
+      // Redirect to dashboard
+      window.location.href = '/dashboard';
     } catch (err: any) {
       console.error('Login failed:', err)
       setError(err.message || 'Invalid email or password. Please try again.')

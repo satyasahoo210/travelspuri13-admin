@@ -6,13 +6,54 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Tables } from '@/database.types';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery } from '@apollo/client/react';
 import { cn } from "@/lib/utils";
 import { createClient } from '@/lib/utils/supabase/client';
 import { motion } from "framer-motion";
 import { BedDouble, CheckCircle2, Construction, Eraser, Loader2, Search } from "lucide-react";
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+
+interface GqlRoom {
+  id: string;
+  roomNumber: string;
+  status: string;
+  roomTypeId: string;
+  housekeepingStatus: string;
+  priorityCleaning: boolean;
+  RoomType?: {
+    id: string;
+    propertyId: string;
+    name: string;
+  } | null;
+}
+
+interface GetRoomsListData {
+  rooms: GqlRoom[];
+}
+
+interface GetRoomsListVariables {
+  propertyId: string;
+}
+
+const GET_ROOMS_LIST: TypedDocumentNode<GetRoomsListData, GetRoomsListVariables> = gql`
+  query GetRoomsList($propertyId: String!) {
+    rooms(propertyId: $propertyId) {
+      id
+      roomNumber
+      status
+      roomTypeId
+      housekeepingStatus
+      priorityCleaning
+      RoomType {
+        id
+        propertyId
+        name
+      }
+    }
+  }
+`;
 
 const statusIcons = {
   AVAILABLE: { icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50' },
@@ -24,25 +65,17 @@ const statusIcons = {
 export default function RoomsPage() {
   const { currentProperty } = useProperty();
   const supabase = createClient();
-  const [rooms, setRooms] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const fetchRooms = async () => {
-    if (!currentProperty) return;
-    const { data } = await supabase
-      .from('Room')
-      .select('*, RoomType!inner(propertyId, name)')
-      .eq('RoomType.propertyId', currentProperty.id);
+  const { data, loading, refetch } = useQuery(GET_ROOMS_LIST, {
+    variables: { propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id,
+  });
 
-    setRooms(data || []);
-    setLoading(false);
-  };
-
-
+  const rooms = data?.rooms || [];
 
   useEffect(() => {
-    fetchRooms();
+    if (!currentProperty) return;
 
     const channel = supabase
       .channel('rooms_live')
@@ -51,17 +84,17 @@ export default function RoomsPage() {
         schema: 'public',
         table: 'Room'
       }, () => {
-        fetchRooms();
+        refetch();
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentProperty]);
+  }, [currentProperty, refetch]);
 
   // Apply filters (searchQuery)
-  const filteredRooms = rooms.filter((room) => {
+  const filteredRooms = rooms.filter((room: GqlRoom) => {
     const query = searchQuery.toLowerCase();
     return (
       room.roomNumber.toLowerCase().includes(query) ||
@@ -71,7 +104,7 @@ export default function RoomsPage() {
   });
 
   // Group rooms by room type
-  const roomsByRoomType = filteredRooms.reduce<Record<string, any[]>>((acc, room) => {
+  const roomsByRoomType = filteredRooms.reduce<Record<string, GqlRoom[]>>((acc, room: GqlRoom) => {
     const typeName = room.RoomType?.name || 'Standard';
     if (!acc[typeName]) acc[typeName] = [];
     acc[typeName].push(room);
@@ -80,7 +113,7 @@ export default function RoomsPage() {
 
   // Sort room numbers numerically within each room type group
   Object.keys(roomsByRoomType).forEach((typeName) => {
-    roomsByRoomType[typeName].sort((a: any, b: any) =>
+    roomsByRoomType[typeName].sort((a: GqlRoom, b: GqlRoom) =>
       a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true, sensitivity: 'base' })
     );
   });

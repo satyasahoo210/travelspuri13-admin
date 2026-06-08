@@ -15,15 +15,35 @@ export default function NewBookingPage() {
   const { currentProperty } = useProperty()
 
   const getDefaultCheckInTime = () => {
-    const propCheckInTime = currentProperty?.settings?.checkinTime
-      ? `${currentProperty.settings.checkinTime}`
+    const settings = (() => {
+      if (!currentProperty?.settings) return null
+      try {
+        return typeof currentProperty.settings === 'string'
+          ? JSON.parse(currentProperty.settings)
+          : currentProperty.settings
+      } catch {
+        return null
+      }
+    })()
+    const propCheckInTime = settings?.checkinTime
+      ? `${settings.checkinTime}`
       : (currentProperty?.checkInTime || '07:00:00')
     return formatInTimeZone(parse(propCheckInTime, formatString, new Date()), currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'HH:mm`);
   }
 
   const getDefaultCheckOutTime = () => {
-    const propCheckOutTime = currentProperty?.settings?.checkoutTime
-      ? `${currentProperty.settings.checkoutTime}`
+    const settings = (() => {
+      if (!currentProperty?.settings) return null
+      try {
+        return typeof currentProperty.settings === 'string'
+          ? JSON.parse(currentProperty.settings)
+          : currentProperty.settings
+      } catch {
+        return null
+      }
+    })()
+    const propCheckOutTime = settings?.checkoutTime
+      ? `${settings.checkoutTime}`
       : (currentProperty?.checkOutTime || '07:00:00')
     return formatInTimeZone(parse(propCheckOutTime, formatString, new Date()), currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'HH:mm`);
   }

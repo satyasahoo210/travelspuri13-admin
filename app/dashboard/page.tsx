@@ -7,24 +7,18 @@ import {
   SourceDistribution
 } from "@/components/dashboard/dashboard-charts";
 import { useProperty } from "@/components/providers/property-provider";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tables } from "@/database.types";
 import { cn } from "@/lib/utils";
-import { createClient } from "@/lib/utils/supabase/client";
+import { gql, TypedDocumentNode } from "@apollo/client";
+import { useApolloClient } from "@apollo/client/react";
 import {
-  differenceInDays,
   eachDayOfInterval,
   endOfDay,
   endOfMonth,
   endOfYear,
   format,
-  isAfter,
-  isBefore,
-  isSameDay,
-  isWithinInterval,
   parseISO,
   startOfDay,
   startOfMonth,
@@ -33,16 +27,14 @@ import {
   subMonths,
   subYears
 } from "date-fns";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Activity,
   BedDouble,
   Calendar,
-  ChevronDown,
   CreditCard,
   Filter,
   Loader2,
-  TrendingUp,
   Users
 } from "lucide-react";
 import Link from "next/link";
@@ -50,15 +42,42 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 type TimeRange = 'today' | 'last-week' | 'this-month' | 'last-month' | 'this-year' | 'last-year' | 'custom';
 
-type Booking = Tables<"Booking"> & {
-  Guest: Pick<Tables<"Guest">, 'name'>;
-  BookingRoom: Pick<Tables<"BookingRoom">, 'quantity'>[];
+type Booking = {
+  id: string;
+  propertyId: string;
+  guestId: string;
+  status: string;
+  checkInDate: string;
+  checkOutDate: string;
+  createdAt: string | null;
+  adults?: number | null;
+  children?: number | null;
+  discountAmount?: number | null;
+  discountType?: string | null;
+  totalAmount?: number | null;
+  notes?: string | null;
+  waiveLastDayCharge?: boolean | null;
+  actualCheckOut?: string | null;
+  BookingRoom?: {
+    quantity: number;
+  }[] | null;
+  Guest?: {
+    name: string;
+  } | null;
 };
-type Payment = Pick<Tables<"Payment">, 'amount' | 'createdAt'> & {
-  Booking: Pick<Tables<"Booking">, 'propertyId'>;
+type Payment = {
+  id: string;
+  bookingId: string;
+  amount: number;
+  createdAt: string | null;
 };
-type Room = Pick<Tables<"Room">, 'id' | 'status' | 'roomTypeId'> & {
-  RoomType: Pick<Tables<"RoomType">, 'propertyId'>;
+type Room = {
+  id: string;
+  status: string;
+  roomTypeId: string;
+  RoomType?: {
+    propertyId: string;
+  } | null;
 };
 
 type DashboardData = {
@@ -68,9 +87,66 @@ type DashboardData = {
   totalRooms: number;
 };
 
+type GetDashboardData = {
+  syncRooms: {
+    data: Room[];
+  }
+  syncBillings: {
+    data: Payment[];
+  }
+  syncBookings: {
+    data: Booking[];
+  }
+}
+
+const GET_DASHBOARD_DATA: TypedDocumentNode<GetDashboardData, { propertyId: string }> = gql`
+  query GetDashboardData($propertyId: String!) {
+    syncRooms(propertyId: $propertyId, since: "0") {
+      data {
+        id
+        status
+        roomTypeId
+        RoomType {
+          id
+          propertyId
+        }
+      }
+    }
+    syncBillings(propertyId: $propertyId, since: "0") {
+      data {
+        id
+        bookingId
+        amount
+        createdAt
+      }
+    }
+    syncBookings(propertyId: $propertyId, since: "0") {
+      data {
+        id
+        propertyId
+        guestId
+        status
+        checkInDate
+        checkOutDate
+        createdAt
+        adults
+        children
+        BookingRoom {
+          id
+          quantity
+        }
+        Guest {
+          id
+          name
+        }
+      }
+    }
+  }
+`;
+
 export default function DashboardPage() {
   const { currentProperty } = useProperty();
-  const supabase = createClient();
+  const client = useApolloClient();
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<TimeRange>('today');
   const [customRange, setCustomRange] = useState({ from: format(subDays(new Date(), 30), 'yyyy-MM-dd'), to: format(new Date(), 'yyyy-MM-dd') });
@@ -124,39 +200,45 @@ export default function DashboardPage() {
     setLoading(true);
 
     try {
-      // 1. Fetch Rooms (Total Inventory)
-      const { data: rooms } = await supabase
-        .from('Room')
-        .select('id, status, roomTypeId, RoomType!inner(propertyId)')
-        .eq('RoomType.propertyId', currentProperty.id);
+      const { data: gqlData } = await client.query({
+        query: GET_DASHBOARD_DATA,
+        variables: { propertyId: currentProperty.id },
+      });
 
-      // 2. Fetch Payments (Revenue) - Fetch for a larger range to support individual chart filters
-      const yearStart = from ?? startOfYear(subYears(new Date(), 1)); // Start of last year
-      const { data: payments } = await supabase
-        .from('Payment')
-        .select('amount, createdAt, Booking!inner(propertyId)')
-        .eq('Booking.propertyId', currentProperty.id)
-        .gte('createdAt', yearStart.toISOString());
+      // Filter rooms for current property
+      const rooms = gqlData?.syncRooms?.data || [];
 
-      // 3. Fetch Bookings (Activity & Occupancy)
-      const { data: bookings } = await supabase
-        .from('Booking')
-        .select('*, Guest(name), BookingRoom(quantity)')
-        .eq('propertyId', currentProperty.id)
-        .neq('status', 'CANCELLED');
+      // Filter bookings for current property and where status !== 'CANCELLED'
+      const allBookings = gqlData?.syncBookings?.data || [];
+      const bookings = allBookings.filter(
+        (b: any) => b.status !== 'CANCELLED'
+      );
+
+      // Filter payments for current property and since yearStart
+      const yearStart = from ?? startOfYear(subYears(new Date(), 1));
+      const allPayments = gqlData?.syncBillings?.data || [];
+
+      const propertyBookingIds = new Set(
+        allBookings.filter((b: any) => b.propertyId === currentProperty.id).map((b: any) => b.id)
+      );
+
+      const payments = allPayments.filter((p: any) => {
+        const created = new Date(p.createdAt);
+        return propertyBookingIds.has(p.bookingId) && created >= yearStart;
+      });
 
       setData({
-        bookings: bookings || [],
-        payments: payments || [],
-        rooms: rooms || [],
-        totalRooms: rooms?.length || 0
+        bookings: bookings,
+        payments: payments,
+        rooms: rooms,
+        totalRooms: rooms.length
       });
     } catch (error) {
       console.error('Dashboard Fetch Error:', error);
     } finally {
       setLoading(false);
     }
-  }, [currentProperty]);
+  }, [currentProperty, client]);
 
   useEffect(() => {
     if (!data) {

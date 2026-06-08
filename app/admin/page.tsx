@@ -6,8 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tables } from '@/database.types';
-import { createClient } from '@/lib/utils/supabase/client';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useMutation } from '@apollo/client/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertCircle,
@@ -22,21 +22,54 @@ import {
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+type UserRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'PROPERTY_MANAGER' | 'STAFF';
+
+const CREATE_USER: TypedDocumentNode<{ createUser: any }, { input: any }> = gql`
+  mutation CreateUser($input: CreateUserInput!) {
+    createUser(input: $input) {
+      id
+      email
+      name
+      role
+      tenantId
+    }
+  }
+`;
+
+const CREATE_TENANT: TypedDocumentNode<{ createTenant: any }, { input: any }> = gql`
+  mutation CreateTenant($input: CreateTenantInput!) {
+    createTenant(input: $input) {
+      tenant {
+        id
+        name
+        email
+      }
+      adminUser {
+        id
+        email
+        name
+      }
+    }
+  }
+`;
+
 export default function AdminPage() {
   const { user } = useAuth();
   const router = useRouter();
-  const supabase = createClient();
   const [activeTab, setActiveTab] = useState<'users' | 'tenants'>('users');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [createUser] = useMutation(CREATE_USER);
+  const [createTenant] = useMutation(CREATE_TENANT);
 
   // Form states
   const [userForm, setUserForm] = useState({
     name: '',
     email: '',
     password: '',
-    role: 'STAFF' as Tables<'User'>['role'],
+    role: 'STAFF' as UserRole,
     tenantId: ''
   });
 
@@ -67,33 +100,17 @@ export default function AdminPage() {
     setSuccess(null);
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: userForm.email,
-        password: userForm.password,
-        options: {
-          data: {
+      await createUser({
+        variables: {
+          input: {
+            email: userForm.email,
+            password: userForm.password,
             name: userForm.name,
             role: userForm.role,
-            tenantId: userForm.tenantId
+            tenantId: userForm.tenantId || null
           }
         }
       });
-
-      if (authError) throw authError;
-
-      if (authData.user) {
-        const { error: dbError } = await supabase
-          .from('User')
-          .insert({
-            id: authData.user.id,
-            email: userForm.email,
-            name: userForm.name,
-            role: userForm.role,
-            tenantId: userForm.tenantId
-          });
-        
-        if (dbError) throw dbError;
-      }
 
       setSuccess(`User ${userForm.email} created successfully!`);
       setUserForm({ name: '', email: '', password: '', role: 'STAFF', tenantId: '' });
@@ -112,45 +129,17 @@ export default function AdminPage() {
     setSuccess(null);
 
     try {
-      const { data: tenantData, error: tenantError } = await supabase
-        .from('Tenant')
-        .insert({
-          name: tenantForm.tenantName,
-          email: tenantForm.tenantEmail,
-          featureFlags: null,
-        })
-        .select()
-        .single();
-
-      if (tenantError) throw tenantError;
-
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: tenantForm.adminEmail,
-        password: tenantForm.adminPassword,
-        options: {
-          data: {
-            name: tenantForm.adminName,
-            role: 'TENANT_ADMIN',
-            tenantId: tenantData.id
+      await createTenant({
+        variables: {
+          input: {
+            name: tenantForm.tenantName,
+            email: tenantForm.tenantEmail || null,
+            adminEmail: tenantForm.adminEmail,
+            adminPassword: tenantForm.adminPassword,
+            adminName: tenantForm.adminName || null
           }
         }
       });
-
-      if (authError) throw authError;
-
-      if (authData.user) {
-        const { error: dbError } = await supabase
-          .from('User')
-          .insert({
-            id: authData.user.id,
-            email: tenantForm.adminEmail,
-            name: tenantForm.adminName,
-            role: 'TENANT_ADMIN',
-            tenantId: tenantData.id
-          });
-        
-        if (dbError) throw dbError;
-      }
 
       setSuccess(`Tenant ${tenantForm.tenantName} created with admin ${tenantForm.adminEmail}`);
       setTenantForm({ tenantName: '', tenantEmail: '', adminName: '', adminEmail: '', adminPassword: '' });
@@ -246,7 +235,7 @@ export default function AdminPage() {
                         id="name"
                         placeholder="John Doe"
                         value={userForm.name}
-                        onChange={e => setUserForm({...userForm, name: e.target.value})}
+                        onChange={e => setUserForm({ ...userForm, name: e.target.value })}
                         className="premium-input bg-slate-50 border-slate-200 focus:bg-white transition-all h-12 rounded-xl"
                         required
                       />
@@ -258,7 +247,7 @@ export default function AdminPage() {
                         type="email"
                         placeholder="john@example.com"
                         value={userForm.email}
-                        onChange={e => setUserForm({...userForm, email: e.target.value})}
+                        onChange={e => setUserForm({ ...userForm, email: e.target.value })}
                         className="premium-input bg-slate-50 border-slate-200 focus:bg-white transition-all h-12 rounded-xl"
                         required
                       />
@@ -266,7 +255,7 @@ export default function AdminPage() {
                     <div className="space-y-2">
                       <Label htmlFor="role" className="text-xs font-black uppercase text-slate-400 tracking-wider">System Role</Label>
                       <Select
-                        onValueChange={(val: Tables<'User'>['role']) => setUserForm({...userForm, role: val})}
+                        onValueChange={(val) => setUserForm({ ...userForm, role: val as UserRole })}
                         defaultValue={userForm.role}
                       >
                         <SelectTrigger className="h-12 bg-slate-50 border-slate-200 focus:bg-white rounded-xl text-slate-900">
@@ -288,7 +277,7 @@ export default function AdminPage() {
                         id="tenant"
                         placeholder="UUID of the tenant"
                         value={userForm.tenantId}
-                        onChange={e => setUserForm({...userForm, tenantId: e.target.value})}
+                        onChange={e => setUserForm({ ...userForm, tenantId: e.target.value })}
                         className="premium-input bg-slate-50 border-slate-200 focus:bg-white transition-all h-12 rounded-xl"
                         required
                       />
@@ -300,7 +289,7 @@ export default function AdminPage() {
                         type="password"
                         placeholder="••••••••"
                         value={userForm.password}
-                        onChange={e => setUserForm({...userForm, password: e.target.value})}
+                        onChange={e => setUserForm({ ...userForm, password: e.target.value })}
                         className="premium-input bg-slate-50 border-slate-200 focus:bg-white transition-all h-12 rounded-xl"
                         required
                       />
@@ -334,7 +323,7 @@ export default function AdminPage() {
                         id="tname"
                         placeholder="Grand Imperial Hotels"
                         value={tenantForm.tenantName}
-                        onChange={e => setTenantForm({...tenantForm, tenantName: e.target.value})}
+                        onChange={e => setTenantForm({ ...tenantForm, tenantName: e.target.value })}
                         className="premium-input bg-slate-50 border-slate-200 focus:bg-white transition-all h-12 rounded-xl"
                         required
                       />
@@ -346,7 +335,7 @@ export default function AdminPage() {
                         type="email"
                         placeholder="contact@hotel.com"
                         value={tenantForm.tenantEmail}
-                        onChange={e => setTenantForm({...tenantForm, tenantEmail: e.target.value})}
+                        onChange={e => setTenantForm({ ...tenantForm, tenantEmail: e.target.value })}
                         className="premium-input bg-slate-50 border-slate-200 focus:bg-white transition-all h-12 rounded-xl"
                         required
                       />
@@ -360,7 +349,7 @@ export default function AdminPage() {
                         id="aname"
                         placeholder="Hotel Manager"
                         value={tenantForm.adminName}
-                        onChange={e => setTenantForm({...tenantForm, adminName: e.target.value})}
+                        onChange={e => setTenantForm({ ...tenantForm, adminName: e.target.value })}
                         className="premium-input bg-slate-50 border-slate-200 focus:bg-white transition-all h-12 rounded-xl"
                         required
                       />
@@ -372,7 +361,7 @@ export default function AdminPage() {
                         type="email"
                         placeholder="admin@hotel.com"
                         value={tenantForm.adminEmail}
-                        onChange={e => setTenantForm({...tenantForm, adminEmail: e.target.value})}
+                        onChange={e => setTenantForm({ ...tenantForm, adminEmail: e.target.value })}
                         className="premium-input bg-slate-50 border-slate-200 focus:bg-white transition-all h-12 rounded-xl"
                         required
                       />
@@ -384,7 +373,7 @@ export default function AdminPage() {
                         type="password"
                         placeholder="••••••••"
                         value={tenantForm.adminPassword}
-                        onChange={e => setTenantForm({...tenantForm, adminPassword: e.target.value})}
+                        onChange={e => setTenantForm({ ...tenantForm, adminPassword: e.target.value })}
                         className="premium-input bg-slate-50 border-slate-200 focus:bg-white transition-all h-12 rounded-xl"
                         required
                       />

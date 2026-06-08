@@ -34,7 +34,7 @@ import { ArrowRight, Calendar, Home, Phone, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 interface CalendarGridProps {
-  rooms: (Tables<'Room'> & { RoomType: Tables<'RoomType'> })[]
+  rooms: any[]
   bookings: BookingAssignment[]
   startDate?: Date
 }
@@ -72,15 +72,35 @@ export function CalendarGrid({
   }, [startDate, viewDays])
 
   const defaultCheckInTime = useMemo(() => {
-    const propCheckInTime = currentProperty?.settings?.checkinTime
-      ? `${currentProperty.settings.checkinTime}`
+    const settings = (() => {
+      if (!currentProperty?.settings) return null
+      try {
+        return typeof currentProperty.settings === 'string'
+          ? JSON.parse(currentProperty.settings)
+          : currentProperty.settings
+      } catch {
+        return null
+      }
+    })()
+    const propCheckInTime = settings?.checkinTime
+      ? `${settings.checkinTime}`
       : (currentProperty?.checkInTime || '07:00:00')
     return propCheckInTime;
   }, [currentProperty])
 
   const defaultCheckOutTime = useMemo(() => {
-    const propCheckOutTime = currentProperty?.settings?.checkoutTime
-      ? `${currentProperty.settings.checkoutTime}`
+    const settings = (() => {
+      if (!currentProperty?.settings) return null
+      try {
+        return typeof currentProperty.settings === 'string'
+          ? JSON.parse(currentProperty.settings)
+          : currentProperty.settings
+      } catch {
+        return null
+      }
+    })()
+    const propCheckOutTime = settings?.checkoutTime
+      ? `${settings.checkoutTime}`
       : (currentProperty?.checkOutTime || '07:00:00')
     return propCheckOutTime;
   }, [currentProperty])
@@ -148,12 +168,13 @@ export function CalendarGrid({
                 {days.map((day) => {
                   const isStart =
                     rangeStart?.roomId === room.id &&
+                    rangeStart?.date &&
                     isSameDay(rangeStart.date, day)
                   const isInRange =
                     rangeStart?.roomId === room.id &&
-                    day > rangeStart.date &&
+                    rangeStart && day > rangeStart.date &&
                     newBookingData?.roomId === room.id &&
-                    newBookingData.checkOut &&
+                    newBookingData?.checkOut &&
                     day < new Date(newBookingData.checkOut)
 
                   return (

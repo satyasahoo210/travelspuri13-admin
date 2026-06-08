@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
 import { useProperty } from '@/components/providers/property-provider';
-import { createClient } from '@/lib/utils/supabase/client';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { createClient } from '@/lib/utils/supabase/client';
 import { 
   Search, 
   Send, 
@@ -23,42 +22,147 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery, useMutation, useLazyQuery } from '@apollo/client/react';
+
+interface Guest {
+  id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+}
+
+interface Room {
+  id: string;
+  roomNumber: string;
+}
+
+interface BookingRoom {
+  id: string;
+  Room?: Room | null;
+}
+
+interface Booking {
+  id: string;
+  status: string;
+  guestId: string;
+  BookingRoom?: BookingRoom[] | null;
+}
+
+interface MessagesPageDataResponse {
+  guests: Guest[];
+  bookings: Booking[];
+}
+
+interface Message {
+  id: string;
+  guestId: string;
+  bookingId?: string | null;
+  tenantId: string;
+  content: string;
+  direction: string;
+  status: string;
+  channel: string;
+  createdAt: string;
+}
+
+const GET_MESSAGES_PAGE_DATA: TypedDocumentNode<MessagesPageDataResponse, { propertyId: string }> = gql`
+  query GetMessagesPageData($propertyId: String!) {
+    guests {
+      id
+      name
+      phone
+      email
+    }
+    bookings(propertyId: $propertyId) {
+      id
+      status
+      guestId
+      BookingRoom {
+        id
+        Room {
+          id
+          roomNumber
+        }
+      }
+    }
+  }
+`;
+
+const GET_MESSAGES: TypedDocumentNode<{ messages: Message[] }, { guestId: string }> = gql`
+  query GetMessages($guestId: String!) {
+    messages(guestId: $guestId) {
+      id
+      guestId
+      bookingId
+      tenantId
+      content
+      direction
+      status
+      channel
+      createdAt
+    }
+  }
+`;
+
+const CREATE_MESSAGE: TypedDocumentNode<{ createMessage: Message }, { input: any }> = gql`
+  mutation CreateMessage($input: CreateMessageInput!) {
+    createMessage(input: $input) {
+      id
+      guestId
+      bookingId
+      tenantId
+      content
+      direction
+      status
+      channel
+      createdAt
+    }
+  }
+`;
 
 export default function MessagesPage() {
   const { currentProperty } = useProperty();
   const supabase = createClient();
+  
   const [search, setSearch] = useState('');
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
-  const [guests, setGuests] = useState<any[]>([]);
-  const [messages, setMessages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [messages, setMessages] = useState<Message[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const fetchGuests = async () => {
-    if (!currentProperty) return;
-    const { data } = await supabase
-      .from('Guest')
-      .select('*, Booking(id, status, BookingRoom(Room(roomNumber)))')
-      .eq('tenantId', currentProperty.tenantId);
-    
-    setGuests(data || []);
-    setLoading(false);
-  };
+  const { data: pageData, loading } = useQuery(GET_MESSAGES_PAGE_DATA, {
+    variables: { propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id,
+  });
+
+  const [getMessages] = useLazyQuery(GET_MESSAGES, { fetchPolicy: 'network-only' });
+  const [createMessage] = useMutation(CREATE_MESSAGE);
+
+  const guests = pageData?.guests || [];
+  const bookings = pageData?.bookings || [];
+
+  const mappedGuests = useMemo(() => {
+    return guests.map((g) => {
+      const guestBookings = bookings.filter((b) => b.guestId === g.id);
+      return {
+        ...g,
+        Booking: guestBookings
+      };
+    });
+  }, [guests, bookings]);
 
   const fetchMessages = async (guestId: string) => {
-    const { data } = await supabase
-      .from('Message')
-      .select('*')
-      .eq('guestId', guestId)
-      .order('createdAt', { ascending: true });
-    
-    setMessages(data || []);
+    try {
+      const { data } = await getMessages({
+        variables: { guestId }
+      });
+      setMessages(data?.messages || []);
+    } catch (err) {
+      console.error('Failed to fetch messages:', err);
+    }
   };
-
-  useEffect(() => {
-    fetchGuests();
-  }, [currentProperty]);
 
   useEffect(() => {
     if (selectedGuestId) {
@@ -73,7 +177,11 @@ export default function MessagesPage() {
           table: 'Message',
           filter: `guestId=eq.${selectedGuestId}`
         }, (payload) => {
-          setMessages(prev => [...prev, payload.new]);
+          const newMsg = payload.new as Message;
+          setMessages(prev => {
+            if (prev.some(m => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
         })
         .subscribe();
 
@@ -89,12 +197,12 @@ export default function MessagesPage() {
     }
   }, [messages]);
 
-  const filteredGuests = guests?.filter(g => 
+  const filteredGuests = mappedGuests?.filter(g => 
     g.name.toLowerCase().includes(search.toLowerCase()) ||
     g.phone?.includes(search)
   );
 
-  const selectedGuest = guests?.find(g => g.id === selectedGuestId);
+  const selectedGuest = mappedGuests?.find(g => g.id === selectedGuestId);
   const activeBooking = selectedGuest?.Booking?.find((b: any) => b.status === 'CHECKED_IN');
   const roomNumber = activeBooking?.BookingRoom?.[0]?.Room?.roomNumber;
 
@@ -102,10 +210,9 @@ export default function MessagesPage() {
     e.preventDefault();
     if (!message.trim() || !selectedGuestId || !currentProperty) return;
     
-    const newMessage = {
+    const payload = {
       guestId: selectedGuestId,
-      bookingId: activeBooking?.id,
-      tenantId: currentProperty.tenantId,
+      bookingId: activeBooking?.id || null,
       content: message,
       direction: 'OUTBOUND',
       status: 'SENT',
@@ -113,18 +220,32 @@ export default function MessagesPage() {
     };
 
     // Optimistic update
-    const optimisticMsg = { ...newMessage, id: Date.now(), createdAt: new Date().toISOString() };
+    const optimisticMsg: Message = { 
+      id: String(Date.now()), 
+      guestId: selectedGuestId,
+      bookingId: activeBooking?.id || null,
+      tenantId: currentProperty.tenantId,
+      content: message,
+      direction: 'OUTBOUND',
+      status: 'SENT',
+      channel: 'WHATSAPP',
+      createdAt: new Date().toISOString() 
+    };
     setMessages(prev => [...prev, optimisticMsg]);
     setMessage('');
 
-    const { error } = await supabase.from('Message').insert(newMessage);
-    if (error) {
-      console.error('Failed to send message:', error);
-      // Rollback or show error
+    try {
+      await createMessage({
+        variables: { input: payload }
+      });
+    } catch (err) {
+      console.error('Failed to send message:', err);
+      // Re-fetch to clean up optimistic state in case of failure
+      fetchMessages(selectedGuestId);
     }
   };
 
-  if (loading) return (
+  if (loading && !guests.length) return (
     <div className="h-[60vh] flex flex-col items-center justify-center space-y-4">
       <Loader2 className="h-8 w-8 animate-spin text-primary" />
       <p className="text-muted-foreground font-bold uppercase tracking-widest text-[10px]">Syncing Conversations...</p>

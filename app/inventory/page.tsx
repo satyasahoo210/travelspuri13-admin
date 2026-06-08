@@ -8,7 +8,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Tables } from '@/database.types';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/utils/supabase/client';
 import { addDays, format, isWithinInterval, startOfDay } from 'date-fns';
@@ -16,28 +15,123 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { BedDouble, Calendar, Info, Loader2, Plus, Save, TrendingUp, Users } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 
-type RoomType = Tables<'RoomType'>;
-type Room = Tables<'Room'>;
-type Booking = Tables<'Booking'> & {
-  BookingRoom: Tables<'BookingRoom'>[];
-};
+interface RoomType {
+  id: string;
+  name: string;
+  capacity: number;
+  defaultPrice?: number | null;
+  propertyId: string;
+  description?: string | null;
+}
+
+interface Room {
+  id: string;
+  roomNumber: string;
+  roomTypeId: string;
+  status: string;
+  housekeepingStatus: string;
+  priorityCleaning: boolean;
+  RoomType?: RoomType | null;
+}
+
+interface BookingRoom {
+  id: string;
+  roomId?: string | null;
+  roomTypeId: string;
+  status: string;
+  checkInDate: string;
+  checkOutDate: string;
+}
+
+interface Booking {
+  id: string;
+  checkInDate: string;
+  checkOutDate: string;
+  status: string;
+  totalAmount?: number | null;
+  BookingRoom?: BookingRoom[] | null;
+}
+
+interface InventoryQueryResponse {
+  roomTypes: RoomType[];
+  rooms: Room[];
+  bookings: Booking[];
+}
+
+const GET_INVENTORY_DATA: TypedDocumentNode<InventoryQueryResponse, { propertyId: string }> = gql`
+  query GetInventoryData($propertyId: String!) {
+    roomTypes(propertyId: $propertyId) {
+      id
+      name
+      capacity
+      defaultPrice
+      propertyId
+    }
+    rooms(propertyId: $propertyId) {
+      id
+      roomNumber
+      roomTypeId
+      status
+      housekeepingStatus
+      priorityCleaning
+      RoomType {
+        id
+        name
+        capacity
+        defaultPrice
+      }
+    }
+    bookings(propertyId: $propertyId) {
+      id
+      checkInDate
+      checkOutDate
+      status
+      totalAmount
+      BookingRoom {
+        id
+        roomId
+        roomTypeId
+        status
+        checkInDate
+        checkOutDate
+      }
+    }
+  }
+`;
+
+const CREATE_ROOM_TYPE: TypedDocumentNode<{ createRoomType: RoomType }, { input: any }> = gql`
+  mutation CreateRoomType($input: CreateRoomTypeInput!) {
+    createRoomType(input: $input) {
+      id
+      name
+      capacity
+      defaultPrice
+      propertyId
+    }
+  }
+`;
 
 export default function InventoryPage() {
   const { currentProperty } = useProperty();
-  const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
   const supabase = createClient();
-  const [isLoading, setIsLoading] = useState(true);
+
+  const { data, loading, refetch } = useQuery(GET_INVENTORY_DATA, {
+    variables: { propertyId: currentProperty?.id || '' },
+    skip: !currentProperty?.id,
+  });
+
+  const [createRoomType] = useMutation(CREATE_ROOM_TYPE);
 
   // Date Range State
   const [startDate, setStartDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState<string>(format(addDays(new Date(), 13), 'yyyy-MM-dd'));
 
   // Refs for scroll synchronization
-  const leftTableRef = useRef<HTMLDivElement>(null);
-  const rightTableRef = useRef<HTMLDivElement>(null);
+  const leftTableRef = useRef<HTMLTableSectionElement>(null);
+  const rightTableRef = useRef<HTMLTableSectionElement>(null);
 
   const handleLeftScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -64,44 +158,28 @@ export default function InventoryPage() {
     description: ''
   });
 
-  const loadData = async () => {
-    if (!currentProperty) return;
-    setIsLoading(true);
-
-    try {
-      const [rtRes, rRes, bRes] = await Promise.all([
-        supabase.from('RoomType').select('*').eq('propertyId', currentProperty.id),
-        supabase.from('Room').select('*, RoomType!inner(*)').eq('RoomType.propertyId', currentProperty.id),
-        supabase.from('Booking').select('*, BookingRoom(*)').eq('propertyId', currentProperty.id).neq('status', 'CANCELLED')
-      ]);
-
-      if (rtRes.data) setRoomTypes(rtRes.data);
-      if (rRes.data) setRooms(rRes.data);
-      if (bRes.data) setBookings(bRes.data);
-    } catch (error) {
-      console.error('Error loading inventory data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const roomTypes = data?.roomTypes || [];
+  const rooms = data?.rooms || [];
+  const bookings = useMemo(() => {
+    const rawBookings = data?.bookings || [];
+    return rawBookings.filter((b) => b.status !== 'CANCELLED');
+  }, [data]);
 
   useEffect(() => {
-    loadData();
-
     // Subscribe to real-time updates for bookings and rooms
     if (currentProperty) {
       const channel = supabase
         .channel('inventory-sync')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'Booking', filter: `propertyId=eq.${currentProperty.id}` }, () => loadData())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'BookingRoom' }, () => loadData())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'Room' }, () => loadData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'Booking', filter: `propertyId=eq.${currentProperty.id}` }, () => refetch())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'BookingRoom' }, () => refetch())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'Room' }, () => refetch())
         .subscribe();
 
       return () => {
         supabase.removeChannel(channel);
       };
     }
-  }, [currentProperty]);
+  }, [currentProperty, refetch]);
 
   const handleAddRoomType = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,16 +187,18 @@ export default function InventoryPage() {
 
     setIsSubmitting(true);
     try {
-      const { error } = await supabase.from('RoomType').insert({
-        propertyId: currentProperty.id,
-        name: formData.name,
-        capacity: formData.capacity,
-        defaultPrice: formData.defaultPrice,
+      await createRoomType({
+        variables: {
+          input: {
+            propertyId: currentProperty.id,
+            name: formData.name,
+            capacity: Number(formData.capacity),
+            defaultPrice: Number(formData.defaultPrice),
+          }
+        }
       });
 
-      if (error) throw error;
-
-      await loadData();
+      await refetch();
       setFormData({ name: '', capacity: 2, defaultPrice: 0, description: '' });
       setIsAddOpen(false);
     } catch (error) {
@@ -162,7 +242,7 @@ export default function InventoryPage() {
     return Math.max(0, totalRooms - occupiedOnDay);
   };
 
-  if (isLoading) return (
+  if (loading && !data) return (
     <div className="h-[80vh] flex flex-col items-center justify-center space-y-4">
       <Loader2 className="h-10 w-10 animate-spin text-primary" />
       <p className="text-muted-foreground font-black uppercase tracking-widest text-[10px]">Synchronizing Inventory...</p>
@@ -198,10 +278,11 @@ export default function InventoryPage() {
                   required
                   value={formData.name}
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  className="h-12 rounded-xl bg-slate-50 border-none font-bold"
+                  className="h-12 rounded-xl border-slate-200"
                 />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Max Capacity</Label>
                   <Input
@@ -209,26 +290,38 @@ export default function InventoryPage() {
                     min="1"
                     required
                     value={formData.capacity}
-                    onChange={e => setFormData({ ...formData, capacity: parseInt(e.target.value) })}
-                    className="h-12 rounded-xl bg-slate-50 border-none font-bold"
+                    onChange={e => setFormData({ ...formData, capacity: parseInt(e.target.value) || 2 })}
+                    className="h-12 rounded-xl border-slate-200"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Base Rate (₹)</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Base Price (₹)</Label>
                   <Input
                     type="number"
                     min="0"
                     required
                     value={formData.defaultPrice}
-                    onChange={e => setFormData({ ...formData, defaultPrice: parseFloat(e.target.value) })}
-                    className="h-12 rounded-xl bg-slate-50 border-none font-bold text-primary"
+                    onChange={e => setFormData({ ...formData, defaultPrice: parseFloat(e.target.value) || 0 })}
+                    className="h-12 rounded-xl border-slate-200"
                   />
                 </div>
               </div>
-              <DialogFooter className="pt-4">
-                <Button type="submit" disabled={isSubmitting} className="w-full h-14 rounded-2xl font-black uppercase tracking-widest">
-                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Register Category
+
+              <DialogFooter className="pt-4 gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setIsAddOpen(false)}
+                  className="h-12 rounded-xl font-bold uppercase tracking-widest text-[10px]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="h-12 rounded-xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+                >
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create Category'}
                 </Button>
               </DialogFooter>
             </form>
@@ -236,167 +329,109 @@ export default function InventoryPage() {
         </Dialog>
       </header>
 
-      <Tabs defaultValue="grid" className="w-full">
-        <TabsList className="bg-slate-100 p-1.5 rounded-2xl inline-flex gap-1 mb-8 shadow-inner w-full justify-start overflow-x-auto scrollbar-none flex-nowrap">
-          <TabsTrigger value="grid" className="rounded-xl px-8 py-3 data-[state=active]:bg-white data-[state=active]:shadow-lg font-black uppercase tracking-widest text-[10px] transition-all whitespace-nowrap shrink-0">
+      <Tabs defaultValue="grid" className="space-y-8">
+        <TabsList className="bg-slate-100 rounded-2xl p-1 w-fit border border-slate-200/50">
+          <TabsTrigger value="grid" className="rounded-xl px-6 py-2.5 font-bold text-xs uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-sm">
             Availability Grid
           </TabsTrigger>
-          <TabsTrigger value="types" className="rounded-xl px-8 py-3 data-[state=active]:bg-white data-[state=active]:shadow-lg font-black uppercase tracking-widest text-[10px] transition-all whitespace-nowrap shrink-0">
-            Room Products
+          <TabsTrigger value="types" className="rounded-xl px-6 py-2.5 font-bold text-xs uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-sm">
+            Categories ({roomTypes.length})
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="grid" className="mt-0">
-          <Card className="border-none shadow-2xl rounded-[2.5rem] bg-white/40 backdrop-blur-xl overflow-hidden">
-            <CardHeader className="bg-white/80 p-8 border-b border-slate-100">
-              <div className="flex flex-col gap-6">
-                <div className="flex justify-between items-center">
-                  <div className="space-y-1">
-                    <CardTitle className="text-xl font-black uppercase tracking-tight text-slate-900">
-                      {days.length}-Day Projections
-                    </CardTitle>
-                    <CardDescription className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                      Real-time room blocks by category
-                    </CardDescription>
-                  </div>
-                  <Badge className="bg-emerald-500/10 text-emerald-600 border-none px-4 py-1.5 rounded-full font-black uppercase text-[9px] tracking-widest shrink-0">
-                    Live Sync Enabled
-                  </Badge>
-                </div>
-
-                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pt-4 border-t border-slate-100/60">
-                  <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto">
-                    <div className="flex flex-col gap-1.5 min-w-[140px]">
-                      <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-1">Start Date</Label>
-                      <Input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => {
-                          setStartDate(e.target.value);
-                          setEndDate(e.target.value);
-                        }}
-                        className="h-10 rounded-xl bg-slate-50 border-none font-bold text-xs shadow-inner"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5 min-w-[140px]">
-                      <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-1">End Date</Label>
-                      <Input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="h-10 rounded-xl bg-slate-50 border-none font-bold text-xs shadow-inner"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 pt-2 lg:pt-0 w-full lg:w-auto justify-start lg:justify-end">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-2 block w-full lg:w-auto">Presets:</span>
-                    {([
-                      { label: 'Today', days: 1 },
-                      { label: '7 Days', days: 7 },
-                      { label: '14 Days', days: 14 },
-                      { label: '30 Days', days: 30 },
-                    ] as { label: string; days: number }[]).map((preset) => {
-                      const isActive = (() => {
-                        const start = new Date(startDate);
-                        const end = new Date(endDate);
-                        const diffTime = end.getTime() - start.getTime();
-                        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
-                        return diffDays === preset.days && format(start, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
-                      })();
-
-                      return (
-                        <Button
-                          key={preset.label}
-                          type="button"
-                          variant={isActive ? 'default' : 'outline'}
-                          onClick={() => {
-                            const today = new Date();
-                            setStartDate(format(today, 'yyyy-MM-dd'));
-                            setEndDate(format(addDays(today, preset.days - 1), 'yyyy-MM-dd'));
-                          }}
-                          className={cn(
-                            "h-9 px-4 rounded-xl font-black text-[9px] uppercase tracking-wider transition-all",
-                            isActive
-                              ? "bg-slate-900 text-white border-none shadow-md shadow-slate-900/10"
-                              : "border-slate-100 hover:bg-slate-50 text-slate-500"
-                          )}
-                        >
-                          {preset.label}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </div>
+        <TabsContent value="grid" className="space-y-8 mt-0">
+          {/* Date Range Picker */}
+          <div className="p-6 bg-white rounded-3xl border shadow-sm flex flex-wrap items-center gap-6">
+            <div className="flex items-center gap-4 w-full md:w-auto">
+              <div className="space-y-1">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Start Date</Label>
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={e => setStartDate(e.target.value)}
+                  className="h-11 rounded-xl border-slate-200"
+                />
               </div>
-            </CardHeader>
-            <CardContent className="p-0 max-w-[93vw] md:max-w-[80vw]">
+              <div className="space-y-1">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">End Date</Label>
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={e => setEndDate(e.target.value)}
+                  className="h-11 rounded-xl border-slate-200"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-4">
+              Showing availability for {days.length} days
+            </p>
+          </div>
+
+          <Card className="rounded-[2.5rem] border-none shadow-xl bg-white overflow-hidden">
+            <CardContent className="p-0">
               <div className="flex w-full overflow-hidden">
-                {/* Left Table: Room Category (Fixed first column) */}
-                <div
-                  ref={leftTableRef}
-                  onScroll={handleLeftScroll}
-                  className="overflow-y-auto max-h-[calc(100vh-340px)] shrink-0 min-w-[180px] sm:min-w-[220px] bg-white border-r border-slate-100 shadow-[4px_0_12px_rgba(0,0,0,0.02)] scrollbar-none"
-                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-                >
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50/50 h-[88px] sticky top-0 z-30 bg-slate-50/95 backdrop-blur-md">
-                        <th className="p-4 sm:p-8 text-left font-black uppercase tracking-widest text-[10px] text-slate-400 border-b border-slate-100">Room Category</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white/30">
-                      {roomTypes.map(type => (
-                        <tr key={type.id} className="hover:bg-slate-50/50 transition-all h-[96px]">
-                          <td className="p-4 border-b border-slate-100 bg-white max-w-20 md:max-w-full">
-                            <div className="font-black text-slate-900 tracking-tight text-base">{type.name}</div>
-                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">Base Rate: ₹{Number(type.defaultPrice).toLocaleString()}</div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                {/* Fixed Column - Room Type Name */}
+                <div className="w-56 md:w-64 flex-shrink-0 bg-white border-r border-slate-100">
+                  <div className="h-[70px] bg-slate-50/50 border-b border-slate-100 p-6 flex items-center">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Room Category</span>
+                  </div>
+                  <div
+                    ref={leftTableRef}
+                    onScroll={handleLeftScroll}
+                    className="overflow-y-auto max-h-[500px] scrollbar-none"
+                  >
+                    {roomTypes.map((type) => (
+                      <div key={type.id} className="h-24 p-6 border-b border-slate-50 flex flex-col justify-center bg-white group hover:bg-slate-50/30 transition-colors">
+                        <span className="font-black text-slate-900 truncate text-base">{type.name}</span>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase mt-1">
+                          {rooms.filter(r => r.roomTypeId === type.id).length} rooms total
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                {/* Right Table: Scrollable Calendar Grid */}
-                <div
-                  ref={rightTableRef}
-                  onScroll={handleRightScroll}
-                  className="flex-1 overflow-auto max-h-[calc(100vh-340px)]"
-                >
+                {/* Scrollable Columns - Dates Grid */}
+                <div className="flex-1 overflow-x-auto">
                   <table className="w-full border-collapse">
                     <thead>
-                      <tr className="bg-slate-50/50 h-[88px] sticky top-0 z-30 bg-slate-50/95 backdrop-blur-md">
-                        {days.map((day, index) => (
-                          <th
-                            key={day.toISOString()}
-                            className={cn(
-                              "p-4 text-center border-b border-slate-100 min-w-[80px]",
-                              !isGridExpanded && index > 1 ? "hidden md:table-cell" : ""
-                            )}
-                          >
-                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{format(day, 'EEE')}</div>
-                            <div className={cn(
-                              "text-base font-black w-10 h-10 mx-auto flex items-center justify-center rounded-xl",
-                              format(day, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd') ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-slate-900"
-                            )}>
-                              {format(day, 'dd')}
-                            </div>
-                          </th>
-                        ))}
+                      <tr className="h-[70px] bg-slate-50/50 border-b border-slate-100">
+                        {days.map((day) => {
+                          const formattedDate = format(day, 'dd');
+                          const formattedDay = format(day, 'EEE');
+                          const isWeekend = ['Sat', 'Sun'].includes(formattedDay);
+                          return (
+                            <th
+                              key={day.toISOString()}
+                              className={cn(
+                                "p-3 text-center border-r border-slate-50/50 min-w-[70px]",
+                                isWeekend && "bg-slate-100/10"
+                              )}
+                            >
+                              <p className="text-[9px] font-black uppercase tracking-tight text-slate-400">{formattedDay}</p>
+                              <p className="text-sm font-black text-slate-900 mt-0.5">{formattedDate}</p>
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
-                    <tbody className="bg-white/30">
-                      {roomTypes.map(type => (
-                        <tr key={type.id} className="hover:bg-white/80 transition-all h-[96px] group">
-                          {days.map((day, index) => {
+                    <tbody
+                      ref={rightTableRef}
+                      onScroll={handleRightScroll}
+                      className="overflow-y-auto max-h-[500px]"
+                    >
+                      {roomTypes.map((type) => (
+                        <tr key={type.id} className="h-24 border-b border-slate-50 hover:bg-slate-50/10 transition-colors group">
+                          {days.map((day) => {
                             const avail = getAvailability(type.id, day);
+                            const total = rooms.filter(r => r.roomTypeId === type.id).length;
+                            const isWeekend = ['Sat', 'Sun'].includes(format(day, 'EEE'));
                             return (
                               <td
                                 key={day.toISOString()}
                                 className={cn(
-                                  "p-4 border-b border-slate-100 text-center",
-                                  !isGridExpanded && index > 1 ? "hidden md:table-cell" : ""
+                                  "p-4 text-center border-r border-slate-50/50 align-middle",
+                                  isWeekend && "bg-slate-100/10"
                                 )}
                               >
                                 <motion.div
@@ -456,7 +491,7 @@ export default function InventoryPage() {
                       </div>
                     </div>
                     <CardTitle className="text-2xl font-black uppercase tracking-tight text-slate-900">{type.name}</CardTitle>
-                    <CardDescription className="text-sm font-medium line-clamp-2">{(type as any).description || 'Premium guest accommodation with full amenities.'}</CardDescription>
+                    <CardDescription className="text-sm font-medium line-clamp-2">{type.description || 'Premium guest accommodation with full amenities.'}</CardDescription>
                   </CardHeader>
                   <CardContent className="p-8 pt-0 space-y-6">
                     <div className="grid grid-cols-2 gap-4">

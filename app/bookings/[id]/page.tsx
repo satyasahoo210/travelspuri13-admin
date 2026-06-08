@@ -46,7 +46,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tables } from '@/database.types'
 import { generateInvoicePDF } from '@/lib/finance/invoice-pdf'
 import { cn } from '@/lib/utils'
-import { createClient } from '@/lib/utils/supabase/client'
+import { gql, TypedDocumentNode } from '@apollo/client'
+import { useApolloClient } from '@apollo/client/react'
 import { differenceInCalendarDays, format, isBefore } from 'date-fns'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
 import {
@@ -72,6 +73,435 @@ import {
 } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
+
+interface GetBookingDetailsResponse {
+  booking: {
+    id: string;
+    guestId: string;
+    propertyId: string;
+    tenantId: string;
+    checkInDate: string;
+    checkOutDate: string;
+    status: string;
+    source: string;
+    totalAmount: string;
+    createdAt: string;
+    updatedAt: string;
+    adults: number;
+    children: number;
+    discountAmount: number;
+    discountType: string;
+    notes: string;
+    waiveLastDayCharge: boolean;
+    actualCheckOut?: string;
+    BookingRoom: any[];
+    BookingService: any[];
+    Payment: any[];
+    Guest: any;
+    Property: any;
+  };
+}
+interface GetBookingDetailsVariables {
+  id: string;
+}
+
+interface GetPropertyServicesResponse {
+  services: any[];
+}
+interface GetPropertyServicesVariables {
+  propertyId: string;
+}
+
+interface GetActiveBookingRoomsResponse {
+  activeBookingRooms: any[];
+}
+interface GetActiveBookingRoomsVariables {
+  propertyId: string;
+}
+
+interface GetRoomsForBookingResponse {
+  syncRooms: {
+    data: any[];
+  };
+}
+interface GetRoomsForBookingVariables {
+  propertyId: string;
+}
+
+interface UpdateBookingResponse {
+  updateBooking: any;
+}
+interface UpdateBookingVariables {
+  id: string;
+  input: any;
+}
+
+interface CancelBookingResponse {
+  cancelBooking: any;
+}
+interface CancelBookingVariables {
+  id: string;
+}
+
+interface AddBookingRoomResponse {
+  addBookingRoom: any;
+}
+interface AddBookingRoomVariables {
+  bookingId: string;
+  roomId?: string | null;
+  roomTypeId: string;
+  checkInDate?: string | null;
+  checkOutDate?: string | null;
+}
+
+interface UpdateBookingRoomResponse {
+  updateBookingRoom: any;
+}
+interface UpdateBookingRoomVariables {
+  id: string;
+  input: any;
+}
+
+interface DeleteBookingRoomResponse {
+  deleteBookingRoom: boolean;
+}
+interface DeleteBookingRoomVariables {
+  id: string;
+}
+
+interface AddBookingServiceResponse {
+  addBookingService: any;
+}
+interface AddBookingServiceVariables {
+  bookingId: string;
+  serviceId: string;
+  quantity: number;
+  totalPrice: number;
+}
+
+interface UpdateBookingServiceResponse {
+  updateBookingService: any;
+}
+interface UpdateBookingServiceVariables {
+  id: string;
+  input: any;
+}
+
+interface DeleteBookingServiceResponse {
+  deleteBookingService: boolean;
+}
+interface DeleteBookingServiceVariables {
+  id: string;
+}
+
+interface UpdateRoomStatusResponse {
+  updateRoomStatus: any;
+}
+interface UpdateRoomStatusVariables {
+  id: string;
+  status: string;
+}
+
+interface CreatePaymentResponse {
+  createPayment: any;
+}
+interface CreatePaymentVariables {
+  input: any;
+}
+
+interface UpdateGuestResponse {
+  updateGuest: any;
+}
+interface UpdateGuestVariables {
+  id: string;
+  input: any;
+}
+
+const GET_BOOKING_DETAILS: TypedDocumentNode<GetBookingDetailsResponse, GetBookingDetailsVariables> = gql`
+  query GetBookingDetails($id: ID!) {
+    booking(id: $id) {
+      id
+      guestId
+      propertyId
+      tenantId
+      checkInDate
+      checkOutDate
+      status
+      source
+      totalAmount
+      createdAt
+      updatedAt
+      adults
+      children
+      discountAmount
+      discountType
+      notes
+      waiveLastDayCharge
+      actualCheckOut
+      Guest {
+        id
+        name
+        phone
+        email
+        gstin
+        grNumber
+      }
+      Property {
+        id
+        name
+        address
+        timezone
+        checkInTime
+        checkOutTime
+        settings
+        taxPercentage
+      }
+      BookingRoom {
+        id
+        bookingId
+        roomId
+        roomTypeId
+        priceOverride
+        status
+        checkInDate
+        checkOutDate
+        Room {
+          id
+          roomNumber
+        }
+        RoomType {
+          id
+          name
+          defaultPrice
+        }
+      }
+      BookingService {
+        id
+        bookingId
+        serviceId
+        quantity
+        totalPrice
+        Service {
+          id
+          name
+          price
+        }
+      }
+      Payment {
+        id
+        bookingId
+        tenantId
+        amount
+        method
+        status
+        createdAt
+        notes
+      }
+    }
+  }
+`;
+
+const GET_PROPERTY_SERVICES: TypedDocumentNode<GetPropertyServicesResponse, GetPropertyServicesVariables> = gql`
+  query GetPropertyServices($propertyId: String!) {
+    services(propertyId: $propertyId) {
+      id
+      name
+      price
+      propertyId
+      tenantId
+    }
+  }
+`;
+
+const GET_ACTIVE_BOOKING_ROOMS: TypedDocumentNode<GetActiveBookingRoomsResponse, GetActiveBookingRoomsVariables> = gql`
+  query GetActiveBookingRooms($propertyId: String!) {
+    activeBookingRooms(propertyId: $propertyId) {
+      id
+      roomId
+      checkInDate
+      checkOutDate
+      Booking {
+        id
+        status
+        checkInDate
+        checkOutDate
+      }
+    }
+  }
+`;
+
+const GET_ROOMS_FOR_BOOKING: TypedDocumentNode<GetRoomsForBookingResponse, GetRoomsForBookingVariables> = gql`
+  query GetRoomsForBooking($propertyId: String!) {
+    syncRooms(propertyId: $propertyId, since: "0") {
+      data {
+        id
+        roomNumber
+        roomTypeId
+        status
+        housekeepingStatus
+        priorityCleaning
+        RoomType {
+          id
+          name
+          defaultPrice
+        }
+      }
+    }
+  }
+`;
+
+const UPDATE_BOOKING: TypedDocumentNode<UpdateBookingResponse, UpdateBookingVariables> = gql`
+  mutation UpdateBooking($id: ID!, $input: UpdateBookingInput!) {
+    updateBooking(id: $id, input: $input) {
+      id
+      totalAmount
+      waiveLastDayCharge
+      discountAmount
+      discountType
+      status
+      actualCheckOut
+      checkInDate
+      checkOutDate
+      adults
+      children
+      notes
+    }
+  }
+`;
+
+const CANCEL_BOOKING: TypedDocumentNode<CancelBookingResponse, CancelBookingVariables> = gql`
+  mutation CancelBooking($id: ID!) {
+    cancelBooking(id: $id) {
+      id
+      status
+    }
+  }
+`;
+
+const ADD_BOOKING_ROOM: TypedDocumentNode<AddBookingRoomResponse, AddBookingRoomVariables> = gql`
+  mutation AddBookingRoom($bookingId: ID!, $roomId: ID, $roomTypeId: ID!, $checkInDate: String, $checkOutDate: String) {
+    addBookingRoom(bookingId: $bookingId, roomId: $roomId, roomTypeId: $roomTypeId, checkInDate: $checkInDate, checkOutDate: $checkOutDate) {
+      id
+      bookingId
+      roomId
+      roomTypeId
+      priceOverride
+      status
+      checkInDate
+      checkOutDate
+      Room {
+        id
+        roomNumber
+      }
+      RoomType {
+        id
+        name
+        defaultPrice
+      }
+    }
+  }
+`;
+
+const UPDATE_BOOKING_ROOM: TypedDocumentNode<UpdateBookingRoomResponse, UpdateBookingRoomVariables> = gql`
+  mutation UpdateBookingRoom($id: ID!, $input: UpdateBookingRoomInput!) {
+    updateBookingRoom(id: $id, input: $input) {
+      id
+      roomId
+      roomTypeId
+      priceOverride
+      status
+      checkInDate
+      checkOutDate
+      Room {
+        id
+        roomNumber
+      }
+      RoomType {
+        id
+        name
+        defaultPrice
+      }
+    }
+  }
+`;
+
+const DELETE_BOOKING_ROOM: TypedDocumentNode<DeleteBookingRoomResponse, DeleteBookingRoomVariables> = gql`
+  mutation DeleteBookingRoom($id: ID!) {
+    deleteBookingRoom(id: $id)
+  }
+`;
+
+const ADD_BOOKING_SERVICE: TypedDocumentNode<AddBookingServiceResponse, AddBookingServiceVariables> = gql`
+  mutation AddBookingService($bookingId: ID!, $serviceId: ID!, $quantity: Int!, $totalPrice: Float!) {
+    addBookingService(bookingId: $bookingId, serviceId: $serviceId, quantity: $quantity, totalPrice: $totalPrice) {
+      id
+      bookingId
+      serviceId
+      quantity
+      totalPrice
+      Service {
+        id
+        name
+        price
+      }
+    }
+  }
+`;
+
+const UPDATE_BOOKING_SERVICE: TypedDocumentNode<UpdateBookingServiceResponse, UpdateBookingServiceVariables> = gql`
+  mutation UpdateBookingService($id: ID!, $input: UpdateBookingServiceInput!) {
+    updateBookingService(id: $id, input: $input) {
+      id
+      quantity
+      totalPrice
+      Service {
+        id
+        name
+        price
+      }
+    }
+  }
+`;
+
+const DELETE_BOOKING_SERVICE: TypedDocumentNode<DeleteBookingServiceResponse, DeleteBookingServiceVariables> = gql`
+  mutation DeleteBookingService($id: ID!) {
+    deleteBookingService(id: $id)
+  }
+`;
+
+const UPDATE_ROOM_STATUS: TypedDocumentNode<UpdateRoomStatusResponse, UpdateRoomStatusVariables> = gql`
+  mutation UpdateRoomStatus($id: ID!, $status: HousekeepingStatus!) {
+    updateRoomStatus(id: $id, status: $status) {
+      id
+      housekeepingStatus
+    }
+  }
+`;
+
+const CREATE_PAYMENT: TypedDocumentNode<CreatePaymentResponse, CreatePaymentVariables> = gql`
+  mutation CreatePayment($input: CreatePaymentInput!) {
+    createPayment(input: $input) {
+      id
+      bookingId
+      tenantId
+      amount
+      method
+      status
+      createdAt
+      notes
+    }
+  }
+`;
+
+const UPDATE_GUEST: TypedDocumentNode<UpdateGuestResponse, UpdateGuestVariables> = gql`
+  mutation UpdateGuest($id: ID!, $input: UpdateGuestInput!) {
+    updateGuest(id: $id, input: $input) {
+      id
+      gstin
+      grNumber
+    }
+  }
+`;
 
 type Booking = Tables<'Booking'> & {
   Guest: Tables<'Guest'> | null
@@ -112,7 +542,7 @@ type PaymentStatus = Tables<'Payment'>['status']
 export default function BookingDetailPage() {
   const router = useRouter()
   const { id } = useParams<{ id: string }>()
-  const supabase = createClient()
+  const client = useApolloClient()
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('details')
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('PENDING')
@@ -150,80 +580,84 @@ export default function BookingDetailPage() {
     setLoading(true)
 
     try {
-      const [
-        folioRes,
-        assignmentsRes,
-        servicesRes,
-        payRes,
-      ] = await Promise.all([
-        supabase
-          .from('Booking')
-          .select('*, Guest(*), Payment(amount, method, status, createdAt)')
-          .eq('id', id)
-          .single(),
-        supabase
-          .from('BookingRoom')
-          .select('*, Room(*), RoomType(*)')
-          .eq('bookingId', id),
-        supabase
-          .from('BookingService')
-          .select('*, Service(*)')
-          .eq('bookingId', id),
-        supabase
-          .from('Payment')
-          .select('*')
-          .eq('bookingId', id)
-          .order('createdAt', { ascending: true }),
-      ])
+      const { data } = await client.query({
+        query: GET_BOOKING_DETAILS,
+        variables: { id },
+      })
 
-      if (folioRes.data) {
-        setFolio(folioRes.data)
-        setGstin(folioRes.data.Guest?.gstin || '')
-        setGrNumber((folioRes.data.Guest as any)?.grNumber || '')
+      const booking = data?.booking
+      if (booking) {
+        setFolio(booking as unknown as Booking)
+        setGstin(booking.Guest?.gstin || '')
+        setGrNumber(booking.Guest?.grNumber || '')
 
-        // Fetch property & related data once we have propertyId
-        const [allServicesRes, allRoomsRes, propRes, activeBookingsRes] = await Promise.all([
-          supabase
-            .from('Service')
-            .select('*')
-            .eq('propertyId', folioRes.data.propertyId),
-          supabase
-            .from('Room')
-            .select('*, RoomType(*)')
-            .eq('RoomType.propertyId', folioRes.data.propertyId)
-            .eq('status', 'AVAILABLE'),
-          supabase
-            .from('Property')
-            .select('*')
-            .eq('id', folioRes.data.propertyId)
-            .single(),
-          supabase
-            .from('BookingRoom')
-            .select('id, roomId, checkInDate, checkOutDate, Booking!inner(id, status, checkInDate, checkOutDate)')
-            .neq('Booking.status', 'CANCELLED')
-            .neq('Booking.status', 'CHECKED_OUT')
-            .eq('Booking.propertyId', folioRes.data.propertyId),
+        if (booking.BookingRoom) setAssignments(booking.BookingRoom)
+        if (booking.BookingService) setServices(booking.BookingService)
+        if (booking.Payment) {
+          const sortedPayments = [...booking.Payment].sort((a, b) =>
+            new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+          )
+          setPayments(sortedPayments)
+        }
+
+        const propertyId = booking.propertyId
+        const [servicesRes, roomsRes, activeRes] = await Promise.all([
+          client.query({
+            query: GET_PROPERTY_SERVICES,
+            variables: { propertyId },
+            fetchPolicy: 'network-only',
+          }),
+          client.query({
+            query: GET_ROOMS_FOR_BOOKING,
+            variables: { propertyId },
+          }),
+          client.query({
+            query: GET_ACTIVE_BOOKING_ROOMS,
+            variables: { propertyId },
+            fetchPolicy: 'network-only',
+          })
         ])
 
-        if (allServicesRes.data) setAvailableServices(allServicesRes.data)
-        if (allRoomsRes.data) setAvailableRooms(allRoomsRes.data)
-        if (activeBookingsRes.data) setActiveBookings(activeBookingsRes.data)
-        if (propRes.data) {
-          const propertyData = propRes.data as Property
-          setProperty(propertyData)
-          setShowTax(propertyData.settings?.defaultTaxEnabled !== false)
+        if (servicesRes.data?.services) {
+          setAvailableServices(servicesRes.data.services)
+        }
+
+        if (roomsRes.data?.syncRooms?.data) {
+          const allRooms = roomsRes.data.syncRooms.data
+          const available = allRooms.filter((r: any) => r.status === 'AVAILABLE')
+          setAvailableRooms(available)
+        }
+
+        if (activeRes.data?.activeBookingRooms) {
+          setActiveBookings(activeRes.data.activeBookingRooms)
+        }
+
+        if (booking.Property) {
+          const propertyData = booking.Property as Property
+
+          // Parse settings if it is a JSON string
+          const parsedSettings = (() => {
+            if (!propertyData.settings) return null
+            try {
+              return typeof propertyData.settings === 'string'
+                ? JSON.parse(propertyData.settings)
+                : propertyData.settings
+            } catch {
+              return null
+            }
+          })()
+
+          const propertyWithParsedSettings = { ...propertyData, settings: parsedSettings }
+          setProperty(propertyWithParsedSettings)
+          setShowTax(parsedSettings?.defaultTaxEnabled !== false)
         }
       }
-
-      if (assignmentsRes.data) setAssignments(assignmentsRes.data)
-      if (servicesRes.data) setServices(servicesRes.data)
-      if (payRes.data) setPayments(payRes.data)
     } catch (err) {
       console.error('Error fetching folio:', err)
     } finally {
       setLoading(false)
     }
-  }, [id, supabase])
+  }, [id, client])
 
   const checkOverbookingOverlap = (roomId: string, startStr: string, endStr: string) => {
     if (!roomId || !startStr || !endStr || !property) return null
@@ -357,11 +791,11 @@ export default function BookingDetailPage() {
   const syncBookingTotal = async (updatedAssignments = assignments, updatedServices = services, updatedFolio = folio) => {
     if (!updatedFolio) return
     const { total: newTotal } = calculateCurrentTotal(updatedFolio, updatedAssignments, updatedServices)
-    const { error } = await supabase
-      .from('Booking')
-      .update({ totalAmount: newTotal } as any)
-      .eq('id', updatedFolio.id)
-    if (!error) {
+    const { data } = await client.mutate({
+      mutation: UPDATE_BOOKING,
+      variables: { id: updatedFolio.id, input: { totalAmount: newTotal } }
+    })
+    if (data?.updateBooking) {
       setFolio({ ...updatedFolio, totalAmount: newTotal })
     }
   }
@@ -431,15 +865,18 @@ export default function BookingDetailPage() {
     const updatedFolio = { ...folio, [field]: processedValue }
     const { total: newTotal } = calculateCurrentTotal(updatedFolio)
 
-    const { error } = await supabase
-      .from('Booking')
-      .update({
-        [field]: processedValue,
-        totalAmount: newTotal,
-      } as any)
-      .eq('id', folio.id)
+    const { data } = await client.mutate({
+      mutation: UPDATE_BOOKING,
+      variables: {
+        id: folio.id,
+        input: {
+          [field]: processedValue,
+          totalAmount: newTotal,
+        }
+      }
+    })
 
-    if (!error) {
+    if (data?.updateBooking) {
       setFolio({ ...updatedFolio, totalAmount: newTotal })
     }
   }
@@ -451,37 +888,49 @@ export default function BookingDetailPage() {
     const { total: newTotal } = calculateCurrentTotal(updatedFolio)
 
     setFolio(updatedFolio)
-    await supabase
-      .from('Booking')
-      .update({ waiveLastDayCharge: newWaiver, totalAmount: newTotal } as any)
-      .eq('id', folio.id)
+    await client.mutate({
+      mutation: UPDATE_BOOKING,
+      variables: {
+        id: folio.id,
+        input: { waiveLastDayCharge: newWaiver, totalAmount: newTotal }
+      }
+    })
   }
 
   const handleUpdateGstin = async (val: string) => {
     if (!folio?.guestId) return
     setGstin(val)
-    await supabase
-      .from('Guest')
-      .update({ gstin: val } as any)
-      .eq('id', folio.guestId)
+    await client.mutate({
+      mutation: UPDATE_GUEST,
+      variables: {
+        id: folio.guestId,
+        input: { gstin: val }
+      }
+    })
   }
 
   const handleUpdateGrNumber = async (val: string) => {
     if (!folio?.guestId) return
     setGrNumber(val)
-    await supabase
-      .from('Guest')
-      .update({ grNumber: val } as any)
-      .eq('id', folio.guestId)
+    await client.mutate({
+      mutation: UPDATE_GUEST,
+      variables: {
+        id: folio.guestId,
+        input: { grNumber: val }
+      }
+    })
   }
 
   const handleCheckIn = async () => {
     if (!folio) return
     setLoading(true)
-    await supabase
-      .from('Booking')
-      .update({ status: 'CHECKED_IN' } as any)
-      .eq('id', folio.id)
+    await client.mutate({
+      mutation: UPDATE_BOOKING,
+      variables: {
+        id: folio.id,
+        input: { status: 'CHECKED_IN' }
+      }
+    })
     fetchFolioData()
   }
 
@@ -489,18 +938,25 @@ export default function BookingDetailPage() {
     if (!folio) return
     setLoading(true)
     const now = new Date().toISOString()
-    await supabase
-      .from('Booking')
-      .update({ status: 'CHECKED_OUT', actualCheckOut: now } as any)
-      .eq('id', folio.id)
+    await client.mutate({
+      mutation: UPDATE_BOOKING,
+      variables: {
+        id: folio.id,
+        input: { status: 'CHECKED_OUT', actualCheckOut: now }
+      }
+    })
 
     // Mark rooms as dirty
     const roomIds = assignments.map(a => a.roomId).filter(Boolean) as string[]
     if (roomIds.length > 0) {
-      await supabase
-        .from('Room')
-        .update({ housekeepingStatus: 'DIRTY' })
-        .in('id', roomIds)
+      await Promise.all(
+        roomIds.map(roomId =>
+          client.mutate({
+            mutation: UPDATE_ROOM_STATUS,
+            variables: { id: roomId, status: 'DIRTY' }
+          })
+        )
+      )
     }
 
     fetchFolioData()
@@ -518,23 +974,25 @@ export default function BookingDetailPage() {
     const updatedFolio = { ...folio, discountAmount: amt, discountType: discountTypeInput }
     const { total: newTotal } = calculateCurrentTotal(updatedFolio, assignments, services)
 
-    const { error } = await supabase
-      .from('Booking')
-      .update({
-        discountAmount: amt,
-        discountType: discountTypeInput,
-        totalAmount: newTotal
-      } as any)
-      .eq('id', folio.id)
+    const { data } = await client.mutate({
+      mutation: UPDATE_BOOKING,
+      variables: {
+        id: folio.id,
+        input: {
+          discountAmount: amt,
+          discountType: discountTypeInput,
+          totalAmount: newTotal
+        }
+      }
+    })
 
-    if (error) {
-      console.error("Error updating discount:", error)
-      alert("Failed to update discount")
-    } else {
+    if (data?.updateBooking) {
       setFolio(updatedFolio)
       await syncBookingTotal(assignments, services, updatedFolio)
       setIsDiscountDialogOpen(false)
       fetchFolioData()
+    } else {
+      alert("Failed to update discount")
     }
     setLoading(false)
   }
@@ -544,10 +1002,10 @@ export default function BookingDetailPage() {
     if (!confirm('Are you sure you want to cancel this booking?')) return
 
     setLoading(true)
-    await supabase
-      .from('Booking')
-      .update({ status: 'CANCELLED' } as any)
-      .eq('id', folio.id)
+    await client.mutate({
+      mutation: CANCEL_BOOKING,
+      variables: { id: folio.id }
+    })
     fetchFolioData()
   }
 
@@ -561,19 +1019,18 @@ export default function BookingDetailPage() {
       return
     }
 
-    const { data, error } = await supabase
-      .from('BookingService')
-      .insert([{
+    const { data } = await client.mutate({
+      mutation: ADD_BOOKING_SERVICE,
+      variables: {
         bookingId: folio.id,
         serviceId: service.id,
         quantity: 1,
         totalPrice: service.price,
-      }])
-      .select('*, Service(*)')
-      .single()
+      }
+    })
 
-    if (!error && data) {
-      const nextServices = [...services, data]
+    if (data?.addBookingService) {
+      const nextServices = [...services, data.addBookingService]
       setServices(nextServices)
       await syncBookingTotal(assignments, nextServices)
     }
@@ -585,12 +1042,15 @@ export default function BookingDetailPage() {
     if (!serviceItem) return
 
     const newTotal = Number(serviceItem.Service?.price || 0) * newQty
-    const { error } = await supabase
-      .from('BookingService')
-      .update({ quantity: newQty, totalPrice: newTotal })
-      .eq('id', id)
+    const { data } = await client.mutate({
+      mutation: UPDATE_BOOKING_SERVICE,
+      variables: {
+        id,
+        input: { quantity: newQty, totalPrice: newTotal }
+      }
+    })
 
-    if (!error) {
+    if (data?.updateBookingService) {
       const nextServices = services.map((s) => s.id === id ? { ...s, quantity: newQty, totalPrice: newTotal } : s)
       setServices(nextServices)
       await syncBookingTotal(assignments, nextServices)
@@ -617,17 +1077,13 @@ export default function BookingDetailPage() {
     // Update non-null checkout dates in DB
     for (const a of assignmentsToUpdate) {
       if (a.checkOutDate) {
-        const { error: updateRoomError } = await supabase
-          .from('BookingRoom')
-          .update({
-            checkOutDate: newCheckOutDateStr,
-          })
-          .eq('id', a.id)
-        if (updateRoomError) {
-          console.error("Error updating assignment checkout date:", updateRoomError)
-          alert("Failed to update some room assignments.")
-          return
-        }
+        await client.mutate({
+          mutation: UPDATE_BOOKING_ROOM,
+          variables: {
+            id: a.id,
+            input: { checkOutDate: newCheckOutDateStr }
+          }
+        })
       }
     }
 
@@ -645,19 +1101,13 @@ export default function BookingDetailPage() {
     const updatedFolio = { ...folio, checkOutDate: newCheckOutStr }
     const { total: newTotal } = calculateCurrentTotal(updatedFolio, nextAssignments, services)
 
-    const { error: updateBookingError } = await supabase
-      .from('Booking')
-      .update({
-        checkOutDate: newCheckOutStr,
-        totalAmount: newTotal,
-      } as any)
-      .eq('id', folio.id)
-
-    if (updateBookingError) {
-      console.error("Error updating booking checkout date:", updateBookingError)
-      alert("Failed to extend booking check-out date.")
-      return
-    }
+    await client.mutate({
+      mutation: UPDATE_BOOKING,
+      variables: {
+        id: folio.id,
+        input: { checkOutDate: newCheckOutStr, totalAmount: newTotal }
+      }
+    })
 
     setFolio({ ...updatedFolio, totalAmount: newTotal })
     setAssignments(nextAssignments)
@@ -686,21 +1136,19 @@ export default function BookingDetailPage() {
         : new Date(dateTimeStr).toISOString()
     }
 
-    const { data, error } = await supabase
-      .from('BookingRoom')
-      .insert([{
+    const { data } = await client.mutate({
+      mutation: ADD_BOOKING_ROOM,
+      variables: {
         bookingId: folio.id,
         roomId: room.id,
         roomTypeId: room.roomTypeId,
-        status: folio.status,
         checkInDate: checkInISO,
         checkOutDate: checkOutISO,
-      }])
-      .select('*, Room(*), RoomType(*)')
-      .single()
+      }
+    })
 
-    if (!error && data) {
-      const nextAssignments = [...assignments, data]
+    if (data?.addBookingRoom) {
+      const nextAssignments = [...assignments, data.addBookingRoom]
       setAssignments(nextAssignments)
       await syncBookingTotal(nextAssignments)
     }
@@ -730,22 +1178,25 @@ export default function BookingDetailPage() {
 
     if (switchDateStr === assignCheckInVal) {
       // If switch date is the check-in date itself, update in-place
-      const { error } = await supabase
-        .from('BookingRoom')
-        .update({
-          roomId: newRoom.id,
-          roomTypeId: newRoom.roomTypeId,
-          priceOverride: null, // Reset price override on switch to use new room type default
-        })
-        .eq('id', assignmentId)
+      const { data } = await client.mutate({
+        mutation: UPDATE_BOOKING_ROOM,
+        variables: {
+          id: assignmentId,
+          input: {
+            roomId: newRoom.id,
+            roomTypeId: newRoom.roomTypeId,
+            priceOverride: null, // Reset price override on switch to use new room type default
+          }
+        }
+      })
 
-      if (!error) {
+      if (data?.updateBookingRoom) {
         // Mark old room as DIRTY
         if (activeAssignment.roomId) {
-          await supabase
-            .from('Room')
-            .update({ housekeepingStatus: 'DIRTY' })
-            .eq('id', activeAssignment.roomId)
+          await client.mutate({
+            mutation: UPDATE_ROOM_STATUS,
+            variables: { id: activeAssignment.roomId, status: 'DIRTY' }
+          })
         }
 
         const nextAssignments = assignments.map(a =>
@@ -777,43 +1228,41 @@ export default function BookingDetailPage() {
         : new Date(`${switchDateStr}T${checkinTime}`).toISOString()
 
       // 1. Update the old assignment's checkOutDate to the switchDate
-      const { error: updateError } = await supabase
-        .from('BookingRoom')
-        .update({
-          checkOutDate: switchCheckOutISO,
-        })
-        .eq('id', assignmentId)
+      const { data: updateData } = await client.mutate({
+        mutation: UPDATE_BOOKING_ROOM,
+        variables: {
+          id: assignmentId,
+          input: { checkOutDate: switchCheckOutISO }
+        }
+      })
 
-      if (updateError) {
-        console.error("Error updating old room checkout date:", updateError)
+      if (!updateData?.updateBookingRoom) {
+        console.error("Error updating old room checkout date")
         return
       }
 
       // Mark old room as DIRTY
       if (activeAssignment.roomId) {
-        await supabase
-          .from('Room')
-          .update({ housekeepingStatus: 'DIRTY' })
-          .eq('id', activeAssignment.roomId)
+        await client.mutate({
+          mutation: UPDATE_ROOM_STATUS,
+          variables: { id: activeAssignment.roomId, status: 'DIRTY' }
+        })
       }
 
       // 2. Insert new assignment starting at switchDate
-      const { data: newAssignment, error: insertError } = await supabase
-        .from('BookingRoom')
-        .insert([{
+      const { data: addData } = await client.mutate({
+        mutation: ADD_BOOKING_ROOM,
+        variables: {
           bookingId: folio.id,
           roomId: newRoom.id,
           roomTypeId: newRoom.roomTypeId,
-          status: folio.status,
           checkInDate: switchCheckInISO,
           checkOutDate: activeAssignment.checkOutDate || null,
-          priceOverride: null,
-        }])
-        .select('*, Room(*), RoomType(*)')
-        .single()
+        }
+      })
 
-      if (insertError) {
-        console.error("Error inserting new room stay:", insertError)
+      if (!addData?.addBookingRoom) {
+        console.error("Error inserting new room stay")
         return
       }
 
@@ -823,7 +1272,7 @@ export default function BookingDetailPage() {
           ? { ...a, checkOutDate: switchCheckOutISO }
           : a
       )
-      const updatedAssignments = [...nextAssignments, newAssignment]
+      const updatedAssignments = [...nextAssignments, addData.addBookingRoom]
       setAssignments(updatedAssignments)
       await syncBookingTotal(updatedAssignments)
     }
@@ -853,27 +1302,26 @@ export default function BookingDetailPage() {
     }
 
     // 3. Update the previous assignment's checkOutDate to the current assignment's checkOutDate
-    const { error: updateError } = await supabase
-      .from('BookingRoom')
-      .update({
-        checkOutDate: currAssignment.checkOutDate,
-      })
-      .eq('id', prevAssignment.id)
+    const { data: updateData } = await client.mutate({
+      mutation: UPDATE_BOOKING_ROOM,
+      variables: {
+        id: prevAssignment.id,
+        input: { checkOutDate: currAssignment.checkOutDate }
+      }
+    })
 
-    if (updateError) {
-      console.error("Error updating previous room checkout date:", updateError)
+    if (!updateData?.updateBookingRoom) {
       alert("Failed to update previous room reservation.")
       return
     }
 
     // 4. Delete the current assignment
-    const { error: deleteError } = await supabase
-      .from('BookingRoom')
-      .delete()
-      .eq('id', currAssignment.id)
+    const { data: deleteRoomData } = await client.mutate({
+      mutation: DELETE_BOOKING_ROOM,
+      variables: { id: currAssignment.id }
+    })
 
-    if (deleteError) {
-      console.error("Error deleting switched room assignment:", deleteError)
+    if (!deleteRoomData?.deleteBookingRoom) {
       alert("Failed to delete the switched room assignment.")
       return
     }
@@ -888,11 +1336,11 @@ export default function BookingDetailPage() {
   }
 
   const handleRemoveRoom = async (assignmentId: string) => {
-    const { error } = await supabase
-      .from('BookingRoom')
-      .delete()
-      .eq('id', assignmentId)
-    if (!error) {
+    const { data } = await client.mutate({
+      mutation: DELETE_BOOKING_ROOM,
+      variables: { id: assignmentId }
+    })
+    if (data?.deleteBookingRoom) {
       const nextAssignments = assignments.filter((a) => a.id !== assignmentId)
       setAssignments(nextAssignments)
       await syncBookingTotal(nextAssignments)
@@ -900,11 +1348,11 @@ export default function BookingDetailPage() {
   }
 
   const handleRemoveService = async (serviceId: string) => {
-    const { error } = await supabase
-      .from('BookingService')
-      .delete()
-      .eq('id', serviceId)
-    if (!error) {
+    const { data } = await client.mutate({
+      mutation: DELETE_BOOKING_SERVICE,
+      variables: { id: serviceId }
+    })
+    if (data?.deleteBookingService) {
       const nextServices = services.filter((s) => s.id !== serviceId)
       setServices(nextServices)
       await syncBookingTotal(assignments, nextServices)
@@ -912,12 +1360,15 @@ export default function BookingDetailPage() {
   }
 
   const handleUpdateRoomPrice = async (assignmentId: string, newPrice: number) => {
-    const { error } = await supabase
-      .from('BookingRoom')
-      .update({ priceOverride: newPrice })
-      .eq('id', assignmentId)
+    const { data } = await client.mutate({
+      mutation: UPDATE_BOOKING_ROOM,
+      variables: {
+        id: assignmentId,
+        input: { priceOverride: newPrice }
+      }
+    })
 
-    if (!error) {
+    if (data?.updateBookingRoom) {
       const nextAssignments = assignments.map(a => a.id === assignmentId ? { ...a, priceOverride: newPrice } : a)
       setAssignments(nextAssignments)
       await syncBookingTotal(nextAssignments)
@@ -935,22 +1386,21 @@ export default function BookingDetailPage() {
     const notes = formData.get('notes') as string
     const paymentDate = formData.get('paymentDate') as string
 
-    const { data, error } = await supabase
-      .from('Payment')
-      .insert([{
-        bookingId: folio.id,
-        tenantId: folio.tenantId,
-        amount,
-        method,
-        createdAt: paymentDate,
-        status: totalDue <= amount ? 'PAID' : 'PARTIAL',
-        notes: notes || null,
-      }])
-      .select('*')
-      .single()
+    const { data } = await client.mutate({
+      mutation: CREATE_PAYMENT,
+      variables: {
+        input: {
+          bookingId: folio.id,
+          tenantId: folio.tenantId,
+          amount,
+          method,
+          notes: notes || null,
+        }
+      }
+    })
 
-    if (!error && data) {
-      setPayments([...payments, data])
+    if (data?.createPayment) {
+      setPayments([...payments, data.createPayment])
       setIsPaymentDialogOpen(false)
     }
     setLoading(false)
@@ -958,6 +1408,7 @@ export default function BookingDetailPage() {
 
   const handleGenerateInvoice = async (mode: 'download' | 'print' = 'download') => {
     if (!folio || !property) return
+    console.log(property)
     setIsGeneratingInvoice(true)
     try {
       const { total: finalTotal, tax: tAmount } = calculateCurrentTotal()
