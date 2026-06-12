@@ -20,6 +20,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useMutation, useQuery } from '@apollo/client/react';
+import { format } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertCircle,
@@ -36,11 +41,6 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { gql, TypedDocumentNode } from '@apollo/client';
-import { useQuery, useMutation } from '@apollo/client/react';
-import { cn } from '@/lib/utils';
-import { Skeleton } from '@/components/ui/skeleton';
-import { format } from 'date-fns';
 
 interface Expense {
   id: string;
@@ -264,7 +264,7 @@ export default function ExpensesPage() {
         const matchesSearch = exp.description
           ? exp.description.toLowerCase().includes(searchQuery.toLowerCase())
           : false || exp.category.toLowerCase().includes(searchQuery.toLowerCase());
-        
+
         // Category filter
         const matchesCategory = categoryFilter === 'ALL' || exp.category === categoryFilter;
 
@@ -292,7 +292,7 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-4 md:p-10 space-y-8 max-w-7xl mx-auto bg-slate-50/30 min-h-screen selection:bg-primary/20">
-      
+
       {/* Header */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 bg-white p-6 md:p-8 rounded-[2rem] border border-slate-200 shadow-sm relative overflow-hidden">
         <div className="space-y-1 relative z-10">
@@ -458,7 +458,7 @@ export default function ExpensesPage() {
                 {filteredExpenses.map((exp) => {
                   const colors = CATEGORY_COLORS[exp.category] || CATEGORY_COLORS.Other;
                   return (
-                    <tr key={exp.id} className="hover:bg-slate-50/30 transition-colors group">
+                    <tr key={exp.id} className="hover:bg-slate-50/30 transition-colors">
                       <td className="p-6 font-bold text-slate-800">{format(new Date(exp.date), 'dd MMM yyyy')}</td>
                       <td className="p-6">
                         <Badge className={cn("rounded-lg border-none px-3 py-1 font-black uppercase text-[9px] tracking-wider", colors.bg, colors.text)}>
@@ -468,7 +468,7 @@ export default function ExpensesPage() {
                       <td className="p-6 text-slate-500 max-w-sm truncate">{exp.description || '-'}</td>
                       <td className="p-6 font-black text-slate-900 text-base">₹{exp.amount.toLocaleString()}</td>
                       <td className="p-6 text-right">
-                        <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex gap-1 justify-end">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -505,7 +505,7 @@ export default function ExpensesPage() {
           </div>
           <form onSubmit={handleFormSubmit} className="p-8 space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              
+
               {/* Amount */}
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Outflow Amount (₹)</Label>

@@ -178,15 +178,12 @@ const getRoomStayNights = (
   const itemCheckOut = item.checkOutDate ? new Date(item.checkOutDate) : bookingCheckOutDate
   
   let roomNights = differenceInCalendarDays(itemCheckOut, itemCheckIn)
-  
-  // Only apply late checkout extra charge/waiver if we fall back to booking dates
-  if (!item.checkOutDate) {
-    if (checkOutTimeStr > propCheckOutTime) {
-      roomNights += 1
-    }
-    if (f.waiveLastDayCharge) {
-      roomNights -= 1
-    }
+
+  if (checkOutTimeStr > propCheckOutTime) {
+    roomNights += 1
+  }
+  if (f.waiveLastDayCharge) {
+    roomNights -= 1
   }
   
   return Math.max(1, roomNights)
@@ -444,7 +441,7 @@ export const generateInvoicePDF = async (
       const total = rate * roomNights
 
       chargesData.push([
-        `Accommodation: Room ${roomNum} (${roomType}) - ${roomNights} Night(s) [${datesStr}] @ INR ${rate.toLocaleString(undefined, { minimumFractionDigits: 2 })}/night`,
+        `Room ${roomNum} (${roomType}) - ${roomNights} Night(s) [${datesStr}] @ INR ${rate.toLocaleString(undefined, { minimumFractionDigits: 2 })}/night`,
         `INR ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
       ])
     })

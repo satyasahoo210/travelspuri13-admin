@@ -711,15 +711,13 @@ export default function BookingDetailPage() {
 
     let roomNights = differenceInCalendarDays(itemCheckOut, itemCheckIn)
 
-    // Only apply late checkout extra charge/waiver if we fall back to booking dates
-    if (!item.checkOutDate) {
-      if (checkOutTimeStr > propCheckOutTime) {
-        roomNights += 1
-      }
-      if (f.waiveLastDayCharge) {
-        roomNights -= 1
-      }
+    if (checkOutTimeStr > propCheckOutTime) {
+      roomNights += 1
     }
+    if (f.waiveLastDayCharge) {
+      roomNights -= 1
+    }
+
 
     return Math.max(1, roomNights)
   }, [folio, property])

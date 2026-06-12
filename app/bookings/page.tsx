@@ -179,6 +179,7 @@ function BookingsContent() {
       const { data } = await client.query({
         query: GET_BOOKINGS,
         variables: { propertyId: currentProperty.id, since: "0" },
+        fetchPolicy: 'network-only'
       })
 
       if (data && data.syncBookings) {
