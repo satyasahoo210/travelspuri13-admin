@@ -3,7 +3,8 @@
 import { useProperty } from '@/components/providers/property-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { generateInvoicePDF } from '@/lib/finance/invoice-pdf';
+import { useState } from 'react';
+import { STORAGE_KEYS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { differenceInCalendarDays, format } from 'date-fns';
 import { ArrowLeft, CreditCard, Download, Globe, Hotel, Loader2, Mail, MapPin, Phone, Receipt } from 'lucide-react';
@@ -228,6 +229,8 @@ export default function InvoicePage() {
   const params = useParams();
   const bookingId = params.id as string;
 
+  const [isDownloading, setIsDownloading] = useState(false);
+
   const { data: queryData, loading } = useQuery(GET_INVOICE_DETAILS, {
     variables: { id: bookingId },
     skip: !bookingId,
@@ -308,84 +311,31 @@ export default function InvoicePage() {
   const totals = calculateTotals();
 
   const handleDownload = async () => {
-    if (!property) return;
-    
-    // Map property settings safely for generator
-    const mappedProperty = {
-      name: property.name,
-      address: property.address || '',
-      phone: property.phone || settings?.phone || null,
-      email: property.email || settings?.email || null,
-      logoUrl: property.logoUrl || null,
-      checkOutTime: property.checkOutTime || null,
-      taxPercentage: property.taxPercentage || null,
-      settings: {
-        checkoutTime: settings?.checkoutTime || '07:00:00',
-        taxAmount: settings?.taxAmount
-      }
-    };
+    try {
+      setIsDownloading(true);
+      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+      const response = await fetch(`/api/v1/booking/${bookingId}/invoice`, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : '',
+        },
+      });
+      if (!response.ok) throw new Error('Failed to generate invoice PDF');
 
-    // Map booking guest safely for generator
-    const mappedBooking = {
-      id: booking.id,
-      adults: booking.adults || null,
-      children: booking.children || null,
-      checkInDate: booking.checkInDate,
-      checkOutDate: booking.checkOutDate,
-      waiveLastDayCharge: booking.waiveLastDayCharge || null,
-      Guest: guest ? {
-        name: guest.name,
-        phone: guest.phone || null,
-        address: guest.address || null,
-        gstin: guest.gstin || null
-      } : null,
-      source: booking.source || null
-    };
-
-    const mappedRoomCharges = roomCharges.map(rc => ({
-      id: rc.id,
-      checkInDate: rc.checkInDate || null,
-      checkOutDate: rc.checkOutDate || null,
-      priceOverride: rc.priceOverride || null,
-      RoomType: rc.RoomType ? {
-        id: rc.RoomType.id,
-        name: rc.RoomType.name,
-        defaultPrice: rc.RoomType.defaultPrice || null
-      } : null,
-      Room: rc.Room ? {
-        id: rc.Room.id,
-        roomNumber: rc.Room.roomNumber
-      } : null
-    }));
-
-    const mappedServiceCharges = serviceCharges.map(sc => ({
-      id: sc.id,
-      totalPrice: sc.totalPrice || 0,
-      quantity: sc.quantity || null,
-      Service: sc.Service ? {
-        id: sc.Service.id,
-        name: sc.Service.name
-      } : null
-    }));
-
-    const mappedPayments = payments.map(p => ({
-      id: p.id,
-      amount: p.amount,
-      method: p.method,
-      createdAt: p.createdAt || null
-    }));
-
-    await generateInvoicePDF(
-      mappedBooking,
-      mappedRoomCharges,
-      mappedServiceCharges,
-      mappedProperty,
-      mappedPayments,
-      {
-        ...totals,
-        showTax: true
-      }
-    );
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `Invoice_${bookingId.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error('Invoice download failed:', err);
+      alert('Failed to download invoice');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
@@ -398,8 +348,16 @@ export default function InvoicePage() {
           </Button>
         </Link>
         <div className="flex gap-3">
-          <Button className="gap-2 font-bold rounded-xl shadow-lg bg-slate-900" onClick={handleDownload}>
-            <Download className="h-4 w-4" /> Download PDF
+          <Button className="gap-2 font-bold rounded-xl shadow-lg bg-slate-900" onClick={handleDownload} disabled={isDownloading}>
+            {isDownloading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Downloading...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" /> Download PDF
+              </>
+            )}
           </Button>
         </div>
       </div>

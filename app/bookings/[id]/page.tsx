@@ -44,7 +44,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tables } from '@/database.types'
-import { generateInvoicePDF } from '@/lib/finance/invoice-pdf'
+import { STORAGE_KEYS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { gql, TypedDocumentNode } from '@apollo/client'
 import { useApolloClient } from '@apollo/client/react'
@@ -1406,33 +1406,34 @@ export default function BookingDetailPage() {
   }
 
   const handleGenerateInvoice = async (mode: 'download' | 'print' = 'download') => {
-    if (!folio || !property) return
-    console.log(property)
+    if (!folio) return
     setIsGeneratingInvoice(true)
     try {
-      const { total: finalTotal, tax: tAmount } = calculateCurrentTotal()
-      await generateInvoicePDF(
-        folio,
-        assignments,
-        services,
-        property,
-        payments,
-        {
-          nights: totalNights,
-          roomTotal: totalRoomCharges,
-          serviceTotal: serviceSubtotal,
-          subtotal: bookingSubtotal ?? 0,
-          discount,
-          tax: tAmount,
-          total: finalTotal,
-          totalPaid,
-          balance: Math.max(0, finalTotal - totalPaid),
-          showTax,
+      const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
+      const response = await fetch(`/api/v1/booking/${folio.id}/invoice`, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : '',
         },
-        mode,
-      )
+      })
+      if (!response.ok) throw new Error('Failed to generate invoice PDF')
+      
+      const blob = await response.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      
+      if (mode === 'print') {
+        window.open(downloadUrl, '_blank')
+      } else {
+        const a = document.createElement('a')
+        a.href = downloadUrl
+        a.download = `Invoice_${folio.id.slice(0, 8)}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }
+      window.URL.revokeObjectURL(downloadUrl)
     } catch (err) {
       console.error('Invoice generation failed:', err)
+      alert('Failed to download invoice')
     } finally {
       setIsGeneratingInvoice(false)
     }
