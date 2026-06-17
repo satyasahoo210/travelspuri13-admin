@@ -681,7 +681,6 @@ export default function ManagePage() {
       setError('Please select a property first')
       return
     }
-    console.log(file)
     setLoading(true)
     setError(null)
     setSuccess(null)

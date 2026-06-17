@@ -70,6 +70,7 @@ type Payment = {
   bookingId: string;
   amount: number;
   createdAt: string | null;
+  status: string;
 };
 type Room = {
   id: string;
@@ -118,6 +119,7 @@ const GET_DASHBOARD_DATA: TypedDocumentNode<GetDashboardData, { propertyId: stri
         bookingId
         amount
         createdAt
+        status
       }
     }
     syncBookings(propertyId: $propertyId, since: "0") {
@@ -259,7 +261,7 @@ export default function DashboardPage() {
     const totalRevenue = payments.filter(p => {
       const created = new Date(p.createdAt!);
       return created >= start && created <= end;
-    }).reduce((sum, p) => sum + Number(p.amount), 0);
+    }).reduce((sum, p) => sum + (p.status === 'REFUNDED' ? -Number(p.amount) : Number(p.amount)), 0);
 
     // Bookings created in range
     const rangeBookings = bookings.filter(b => {

@@ -295,10 +295,16 @@ export function CalendarGrid({
                             className={cn(
                               'h-full mx-1 rounded-2xl p-3 flex flex-col justify-center border shadow-sm transition-all group-hover/booking:shadow-md group-hover/booking:scale-[1.02] relative overflow-hidden',
                               status === 'CONFIRMED'
-                                ? 'bg-emerald-50 border-emerald-100 text-emerald-900'
+                                ? 'bg-indigo-50 border-indigo-100 text-indigo-900'
                                 : status === 'CHECKED_IN'
-                                  ? 'bg-primary/5 border-primary/20 text-primary'
-                                  : 'bg-slate-100 border-slate-200 text-slate-900',
+                                  ? 'bg-emerald-50 border-emerald-100 text-emerald-950'
+                                  : status === 'CHECKED_OUT'
+                                    ? 'bg-slate-50 border-slate-200 text-slate-400 opacity-60 line-through'
+                                    : status === 'CANCELLED'
+                                      ? 'bg-rose-50 border-rose-100 text-rose-900 opacity-60'
+                                      : status === 'NO_SHOW'
+                                        ? 'bg-amber-50 border-amber-100 text-amber-900'
+                                        : 'bg-slate-100 border-slate-200 text-slate-900',
                             )}
                           >
                             <div className="absolute top-0 right-0 p-1 opacity-20 group-hover/booking:opacity-40 transition-opacity">

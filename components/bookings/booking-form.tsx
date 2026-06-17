@@ -4,8 +4,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SearchableCombobox } from '@/components/ui/searchable-combobox'
-import { gql, TypedDocumentNode } from '@apollo/client'
-import { useQuery, useMutation } from '@apollo/client/react'
 import {
   Select,
   SelectContent,
@@ -15,6 +13,8 @@ import {
 } from '@/components/ui/select'
 import { PAYMENT_METHODS } from '@/lib/constants'
 import { createClient } from '@/lib/utils/supabase/client'
+import { gql, TypedDocumentNode } from '@apollo/client'
+import { useMutation, useQuery } from '@apollo/client/react'
 import { differenceInCalendarDays, format } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import { AlertTriangle, Calendar, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, DollarSign, Home, Loader2, Search, ShieldCheck, UserPlus } from 'lucide-react'
@@ -233,7 +233,6 @@ export function BookingForm({
   const [collapsedRoomTypes, setCollapsedRoomTypes] = useState<Record<string, boolean>>({})
 
   const getRoomOverbookingStay = (roomId: string) => {
-    console.log(roomId)
     if (!formData.checkIn || !formData.checkOut || !currentProperty) return null
 
     const settings = (() => {

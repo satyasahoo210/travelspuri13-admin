@@ -3,15 +3,15 @@
 import { useProperty } from '@/components/providers/property-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
 import { STORAGE_KEYS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { gql, TypedDocumentNode } from '@apollo/client';
+import { useQuery } from '@apollo/client/react';
 import { differenceInCalendarDays, format } from 'date-fns';
 import { ArrowLeft, CreditCard, Download, Globe, Hotel, Loader2, Mail, MapPin, Phone, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { gql, TypedDocumentNode } from '@apollo/client';
-import { useQuery } from '@apollo/client/react';
+import { useState } from 'react';
 
 // GraphQL Response Interfaces
 interface GuestType {
@@ -246,7 +246,7 @@ export default function InvoicePage() {
   const booking = queryData.booking;
   const guest = booking.Guest;
   const property = booking.Property;
-  
+
   const settings = (() => {
     if (!property?.settings) return {};
     try {
@@ -266,10 +266,10 @@ export default function InvoicePage() {
   const calculateTotals = () => {
     const checkInDate = new Date(booking.checkInDate);
     const checkOutDate = new Date(booking.checkOutDate);
-    
+
     let nights = differenceInCalendarDays(checkOutDate, checkInDate);
     const checkOutTimeStr = format(checkOutDate, 'HH:mm:ss');
-    const propCheckOutTime = settings?.checkoutTime 
+    const propCheckOutTime = settings?.checkoutTime
       ? `${settings.checkoutTime}:00`
       : (property?.checkOutTime || '07:00:00');
 
@@ -284,7 +284,7 @@ export default function InvoicePage() {
     const totalRoomCharges = roomSubtotal * nights;
     const serviceSubtotal = serviceCharges.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
     const subtotal = totalRoomCharges + serviceSubtotal;
-    
+
     const discountAmount = booking.discountType === 'PERCENTAGE'
       ? subtotal * (Number(booking.discountAmount || 0) / 100)
       : Number(booking.discountAmount || 0);
@@ -293,7 +293,12 @@ export default function InvoicePage() {
     const tax = (subtotal - discountAmount) * taxRate;
     const grandTotal = subtotal - discountAmount + tax;
 
-    const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const totalPaid = payments.reduce((sum, p) => {
+      if (p.status === 'REFUNDED') {
+        return sum - Number(p.amount);
+      }
+      return sum + Number(p.amount);
+    }, 0);
 
     return {
       nights,
@@ -325,7 +330,7 @@ export default function InvoicePage() {
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = `Invoice_${bookingId.slice(0, 8)}.pdf`;
+      a.download = `Invoice_${bookingId.slice(0, 8)}_${guest?.name.split(' ').slice(0, 2).join('_')}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -427,8 +432,8 @@ export default function InvoicePage() {
                 <Badge className={cn(
                   "rounded-lg h-6 px-3 font-black uppercase text-[9px] border-none",
                   booking.status === 'CONFIRMED' ? 'bg-emerald-50 text-emerald-600' :
-                  booking.status === 'CHECKED_IN' ? 'bg-blue-50 text-blue-600' :
-                  'bg-slate-100 text-slate-600'
+                    booking.status === 'CHECKED_IN' ? 'bg-blue-50 text-blue-600' :
+                      'bg-slate-100 text-slate-600'
                 )}>
                   {booking.status}
                 </Badge>

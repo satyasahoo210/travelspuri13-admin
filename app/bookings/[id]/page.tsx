@@ -68,6 +68,7 @@ import {
   Printer,
   Receipt,
   Trash2,
+  Undo,
   User,
   XCircle
 } from 'lucide-react'
@@ -561,6 +562,7 @@ export default function BookingDetailPage() {
   const [gstin, setGstin] = useState('')
   const [grNumber, setGrNumber] = useState('')
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
+  const [isReturnPaymentDialogOpen, setIsReturnPaymentDialogOpen] = useState(false)
   const [isAddRoomDialogOpen, setIsAddRoomDialogOpen] = useState(false)
   const [isSwitchRoomDialogOpen, setIsSwitchRoomDialogOpen] = useState(false)
   const [isExtendDialogOpen, setIsExtendDialogOpen] = useState(false)
@@ -841,8 +843,15 @@ export default function BookingDetailPage() {
   } = calculateCurrentTotal()
 
   const totalPaid = payments
-    .filter((p) => ['PAID', 'PARTIAL'].includes(p.status || ''))
-    .reduce((sum, p) => sum + Number(p.amount), 0)
+    .reduce((sum, p) => {
+      if (p.status === 'REFUNDED') {
+        return sum - Number(p.amount)
+      }
+      if (['PAID', 'PARTIAL'].includes(p.status || '')) {
+        return sum + Number(p.amount)
+      }
+      return sum
+    }, 0)
   const totalDue = Math.max(0, total - totalPaid)
 
   useEffect(() => {
@@ -1405,6 +1414,37 @@ export default function BookingDetailPage() {
     setLoading(false)
   }
 
+  const handleRecordReturnPayment = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!folio) return
+    setLoading(true)
+
+    const formData = new FormData(e.currentTarget)
+    const amount = Number(formData.get('amount'))
+    const method = formData.get('method') as string
+    const notes = formData.get('notes') as string
+
+    const { data } = await client.mutate({
+      mutation: CREATE_PAYMENT,
+      variables: {
+        input: {
+          bookingId: folio.id,
+          tenantId: folio.tenantId,
+          amount,
+          method,
+          notes: notes || 'Refunded return payment',
+          status: 'REFUNDED',
+        }
+      }
+    })
+
+    if (data?.createPayment) {
+      setPayments([...payments, data.createPayment])
+      setIsReturnPaymentDialogOpen(false)
+    }
+    setLoading(false)
+  }
+
   const handleGenerateInvoice = async (mode: 'download' | 'print' = 'download') => {
     if (!folio) return
     setIsGeneratingInvoice(true)
@@ -1416,16 +1456,16 @@ export default function BookingDetailPage() {
         },
       })
       if (!response.ok) throw new Error('Failed to generate invoice PDF')
-      
+
       const blob = await response.blob()
       const downloadUrl = window.URL.createObjectURL(blob)
-      
+
       if (mode === 'print') {
         window.open(downloadUrl, '_blank')
       } else {
         const a = document.createElement('a')
         a.href = downloadUrl
-        a.download = `Invoice_${folio.id.slice(0, 8)}.pdf`
+        a.download = `Invoice_${folio.id.slice(0, 8)}_${folio.Guest?.name.split(' ').slice(0, 2).join('_') || 'Guest'}.pdf`
         document.body.appendChild(a)
         a.click()
         a.remove()
@@ -1545,6 +1585,13 @@ export default function BookingDetailPage() {
               >
                 <CreditCard className="w-4 h-4 text-emerald-500" />
                 Record Payment
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="rounded-xl h-12 font-black uppercase text-[10px] tracking-widest gap-3"
+                onClick={() => setIsReturnPaymentDialogOpen(true)}
+              >
+                <Undo className="w-4 h-4 text-rose-500" />
+                Record Return Payment
               </DropdownMenuItem>
               {(folio?.status === 'CONFIRMED' || folio?.status === 'CHECKED_IN') && (
                 <DropdownMenuItem
@@ -1855,15 +1902,23 @@ export default function BookingDetailPage() {
                       <div key={p.id} className="flex justify-between items-center p-5 bg-white rounded-3xl border border-slate-100 shadow-sm">
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center">
-                            <CreditCard className="h-5 w-5 text-slate-400" />
+                            {p.status === 'REFUNDED' ? (
+                              <Undo className="h-5 w-5 text-rose-500" />
+                            ) : (
+                              <CreditCard className="h-5 w-5 text-slate-400" />
+                            )}
                           </div>
                           <div>
-                            <p className="text-sm font-black text-slate-900">{p.method}</p>
+                            <p className="text-sm font-black text-slate-900">{p.status === 'REFUNDED' ? `Refund (${p.method})` : p.method}</p>
                             <p className="text-[10px] font-bold text-slate-400">{format(new Date(p.createdAt ?? ''), 'dd MMM, hh:mm a')}</p>
                           </div>
                         </div>
                         {p.notes && <p className="text-xs text-slate-500">Note: {p.notes}</p>}
-                        <p className="font-black text-emerald-600 text-lg">₹{Number(p.amount).toLocaleString()}</p>
+                        {p.status === 'REFUNDED' ? (
+                          <p className="font-black text-rose-500 text-lg">- ₹{Number(p.amount).toLocaleString()}</p>
+                        ) : (
+                          <p className="font-black text-emerald-600 text-lg">₹{Number(p.amount).toLocaleString()}</p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2159,6 +2214,49 @@ export default function BookingDetailPage() {
             </div>
             <Button type="submit" disabled={loading} className="w-full h-14 rounded-2xl font-black uppercase tracking-widest bg-slate-900 shadow-xl shadow-slate-900/20">
               {loading ? 'PROCESSING...' : 'CONFIRM TRANSACTION'}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Return Payment Dialog */}
+      <Dialog open={isReturnPaymentDialogOpen} onOpenChange={setIsReturnPaymentDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] rounded-[2.5rem]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-heading font-black tracking-tighter">Record Return Payment</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleRecordReturnPayment} className="space-y-6 pt-4">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Paid</span>
+                <span className="text-2xl font-heading font-black text-slate-900">₹{totalPaid.toLocaleString()}</span>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Return Amount</Label>
+                <Input name="amount" type="number" step="0.01" required defaultValue={totalPaid} max={totalPaid} className="h-12 rounded-xl font-bold" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Notes</Label>
+                <Input name="notes" type="text" required className="h-10 rounded-xl font-bold" placeholder="Refund reason..." />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Return Method</Label>
+                <Select name="method" required defaultValue="CASH">
+                  <SelectTrigger className="h-12 rounded-xl font-bold">
+                    <SelectValue placeholder="Select method" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CASH">Cash Payment</SelectItem>
+                    <SelectItem value="CREDIT_CARD">Credit Card</SelectItem>
+                    <SelectItem value="DEBIT_CARD">Debit Card</SelectItem>
+                    <SelectItem value="UPI">UPI / Digital Wallet</SelectItem>
+                    <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <Button type="submit" disabled={loading} className="w-full h-14 rounded-2xl font-black uppercase tracking-widest bg-rose-600 hover:bg-rose-700 shadow-xl shadow-rose-600/20 text-white">
+              {loading ? 'PROCESSING...' : 'CONFIRM REFUND'}
             </Button>
           </form>
         </DialogContent>
