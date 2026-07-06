@@ -48,10 +48,7 @@ type Property = {
   logoUrl: string | null
   checkOutTime: string | null
   taxPercentage: number | null
-  settings: {
-    checkoutTime: string
-    taxAmount?: number
-  } | null
+  settings: any
 }
 
 type ServiceType = {
@@ -71,6 +68,7 @@ type Payment = {
   amount: number
   method: string
   createdAt: string | null
+  status?: string | null
 }
 
 // Helper function to convert numeric amount to Indian Rupee Words
@@ -170,8 +168,18 @@ const getRoomStayNights = (
   const bookingCheckOutDate = new Date(f.checkOutDate)
 
   const checkOutTimeStr = format(bookingCheckOutDate, 'HH:mm:ss')
-  const propCheckOutTime = p.settings?.checkoutTime
-    ? `${p.settings.checkoutTime}`
+
+  const propertySettings = (() => {
+    if (!p.settings) return null
+    try {
+      return typeof p.settings === 'string' ? JSON.parse(p.settings) : p.settings
+    } catch {
+      return null
+    }
+  })()
+
+  const propCheckOutTime = propertySettings?.checkoutTime
+    ? propertySettings.checkoutTime
     : (p.checkOutTime || '07:00:00')
 
   const itemCheckIn = item.checkInDate ? new Date(item.checkInDate) : bookingCheckInDate
@@ -546,9 +554,11 @@ export const generateInvoicePDF = async (
   
       const paymentData = payments.map((p) => [
         format(new Date(p.createdAt ?? ''), 'dd MMM yyyy, hh:mm a'),
-        p.method || 'N/A',
+        p.status === 'REFUNDED' ? `Refund (${p.method || 'N/A'})` : (p.method || 'N/A'),
         `#${p.id.slice(0, 8).toUpperCase()}`,
-        `INR ${Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+        p.status === 'REFUNDED'
+          ? `- INR ${Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+          : `INR ${Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
       ])
   
       autoTable(doc, {

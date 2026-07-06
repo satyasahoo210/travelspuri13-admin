@@ -12,10 +12,10 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
+  Receipt,
   RefreshCcw,
   Settings2,
   ShieldAlert,
-  Receipt,
   TrendingUp,
   Users,
 } from 'lucide-react'
@@ -25,12 +25,12 @@ import { PropertySwitcher } from './property-switcher'
 
 const baseNavItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, showInBottomNav: true },
-  { label: 'Calendar', href: '/calendar', icon: CalendarRange, showInBottomNav: false },
-  { label: 'Bookings', href: '/bookings', icon: Users, showInBottomNav: true },
+  { label: 'Calendar', href: '/calendar', icon: CalendarRange, showInBottomNav: true },
+  { label: 'Bookings', href: '/bookings', icon: Users, showInBottomNav: false },
   { label: 'Rooms', href: '/rooms', icon: DoorOpen, showInBottomNav: false },
   { label: 'Inventory', href: '/inventory', icon: BedDouble, showInBottomNav: true },
   { label: 'Housekeeping', href: '/housekeeping', icon: RefreshCcw, showInBottomNav: true },
-  { label: 'Expenses', href: '/expenses', icon: Receipt, showInBottomNav: false },
+  { label: 'Expenses', href: '/expenses', icon: Receipt, showInBottomNav: true },
   { label: 'Rates', href: '/rates', icon: TrendingUp, showInBottomNav: false },
   { label: 'Reports', href: '/reports', icon: BarChart3, showInBottomNav: false },
   { label: 'Messages', href: '/messages', icon: MessageSquare, showInBottomNav: false },

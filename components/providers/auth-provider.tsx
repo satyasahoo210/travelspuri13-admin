@@ -66,6 +66,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               body: JSON.stringify({ refresh_token: refreshToken }),
             });
 
+            console.log(refreshRes)
+
             if (refreshRes.ok) {
               const refreshData = await refreshRes.json();
               localStorage.setItem(STORAGE_KEYS.TOKEN, refreshData.access_token);

@@ -44,7 +44,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tables } from '@/database.types'
-import { STORAGE_KEYS } from '@/lib/constants'
+import { generateInvoicePDF } from '@/lib/finance/invoice-pdf'
 import { cn } from '@/lib/utils'
 import { gql, TypedDocumentNode } from '@apollo/client'
 import { useApolloClient } from '@apollo/client/react'
@@ -736,6 +736,7 @@ export default function BookingDetailPage() {
         nights: 1,
         roomTotal: 0,
         serviceTotal: 0,
+        subtotal: 0,
         discount: 0,
         tax: 0,
       }
@@ -1446,34 +1447,32 @@ export default function BookingDetailPage() {
   }
 
   const handleGenerateInvoice = async (mode: 'download' | 'print' = 'download') => {
-    if (!folio) return
+    if (!folio || !property) return
     setIsGeneratingInvoice(true)
     try {
-      const token = localStorage.getItem(STORAGE_KEYS.TOKEN)
-      const response = await fetch(`/api/v1/booking/${folio.id}/invoice`, {
-        headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
+      await generateInvoicePDF(
+        folio as any,
+        assignments as any,
+        services as any,
+        property as any,
+        payments as any,
+        {
+          nights: totalNights,
+          roomTotal: totalRoomCharges,
+          serviceTotal: serviceSubtotal,
+          subtotal: bookingSubtotal,
+          discount,
+          tax: taxAmount,
+          total,
+          totalPaid,
+          balance: totalDue,
+          showTax,
         },
-      })
-      if (!response.ok) throw new Error('Failed to generate invoice PDF')
-
-      const blob = await response.blob()
-      const downloadUrl = window.URL.createObjectURL(blob)
-
-      if (mode === 'print') {
-        window.open(downloadUrl, '_blank')
-      } else {
-        const a = document.createElement('a')
-        a.href = downloadUrl
-        a.download = `Invoice_${folio.id.slice(0, 8)}_${folio.Guest?.name.split(' ').slice(0, 2).join('_') || 'Guest'}.pdf`
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-      }
-      window.URL.revokeObjectURL(downloadUrl)
+        mode,
+      )
     } catch (err) {
       console.error('Invoice generation failed:', err)
-      alert('Failed to download invoice')
+      alert('Failed to generate invoice')
     } finally {
       setIsGeneratingInvoice(false)
     }

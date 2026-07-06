@@ -1,14 +1,13 @@
 'use client';
 
-import { useProperty } from '@/components/providers/property-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { STORAGE_KEYS } from '@/lib/constants';
+import { generateInvoicePDF } from '@/lib/finance/invoice-pdf';
 import { cn } from '@/lib/utils';
 import { gql, TypedDocumentNode } from '@apollo/client';
 import { useQuery } from '@apollo/client/react';
 import { differenceInCalendarDays, format } from 'date-fns';
-import { ArrowLeft, CreditCard, Download, Globe, Hotel, Loader2, Mail, MapPin, Phone, Receipt } from 'lucide-react';
+import { ArrowLeft, CreditCard, Download, Globe, Hotel, Loader2, Mail, MapPin, Phone } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
@@ -316,25 +315,29 @@ export default function InvoicePage() {
   const totals = calculateTotals();
 
   const handleDownload = async () => {
+    if (!property) return;
     try {
       setIsDownloading(true);
-      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
-      const response = await fetch(`/api/v1/booking/${bookingId}/invoice`, {
-        headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
+      await generateInvoicePDF(
+        booking as any,
+        roomCharges as any,
+        serviceCharges as any,
+        property as any,
+        payments as any,
+        {
+          nights: totals.nights,
+          roomTotal: totals.roomTotal,
+          serviceTotal: totals.serviceTotal,
+          subtotal: totals.subtotal,
+          discount: totals.discount,
+          tax: totals.tax,
+          total: totals.total,
+          totalPaid: totals.totalPaid,
+          balance: totals.balance,
+          showTax: settings?.defaultTaxEnabled !== false,
         },
-      });
-      if (!response.ok) throw new Error('Failed to generate invoice PDF');
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `Invoice_${bookingId.slice(0, 8)}_${guest?.name.split(' ').slice(0, 2).join('_')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
+        'download'
+      );
     } catch (err) {
       console.error('Invoice download failed:', err);
       alert('Failed to download invoice');
