@@ -26,7 +26,7 @@ export default function NewBookingPage() {
       }
     })()
     const propCheckInTime = settings?.checkinTime
-      ? `${settings.checkinTime}`
+      ? `${settings.checkinTime}:00`
       : (currentProperty?.checkInTime || '07:00:00')
     return formatInTimeZone(parse(propCheckInTime, formatString, new Date()), currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'HH:mm`);
   }
@@ -43,7 +43,7 @@ export default function NewBookingPage() {
       }
     })()
     const propCheckOutTime = settings?.checkoutTime
-      ? `${settings.checkoutTime}`
+      ? `${settings.checkoutTime}:00`
       : (currentProperty?.checkOutTime || '07:00:00')
     return formatInTimeZone(parse(propCheckOutTime, formatString, new Date()), currentProperty?.timezone ?? 'Asia/Kolkata', `yyyy-MM-dd'T'HH:mm`);
   }

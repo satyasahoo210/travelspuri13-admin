@@ -83,7 +83,7 @@ export function CalendarGrid({
       }
     })()
     const propCheckInTime = settings?.checkinTime
-      ? `${settings.checkinTime}`
+      ? `${settings.checkinTime}:00`
       : (currentProperty?.checkInTime || '07:00:00')
     return propCheckInTime;
   }, [currentProperty])
@@ -100,7 +100,7 @@ export function CalendarGrid({
       }
     })()
     const propCheckOutTime = settings?.checkoutTime
-      ? `${settings.checkoutTime}`
+      ? `${settings.checkoutTime}:00`
       : (currentProperty?.checkOutTime || '07:00:00')
     return propCheckOutTime;
   }, [currentProperty])
