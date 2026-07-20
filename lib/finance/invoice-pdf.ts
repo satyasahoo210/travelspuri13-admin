@@ -178,9 +178,13 @@ const getRoomStayNights = (
     }
   })()
 
-  const propCheckOutTime = propertySettings?.checkoutTime
+  let propCheckOutTime = propertySettings?.checkoutTime
     ? propertySettings.checkoutTime
     : (p.checkOutTime || '07:00:00')
+
+  if (propCheckOutTime.split(':').length === 2) {
+    propCheckOutTime += ':00'
+  }
 
   const itemCheckIn = item.checkInDate ? new Date(item.checkInDate) : bookingCheckInDate
   const itemCheckOut = item.checkOutDate ? new Date(item.checkOutDate) : bookingCheckOutDate
