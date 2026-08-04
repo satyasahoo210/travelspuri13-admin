@@ -570,7 +570,11 @@ export const generateInvoicePDF = async (
         head: [['Date & Time', 'Payment Mode', 'Reference ID', 'Amount']],
         body: paymentData,
         theme: 'grid',
-        headStyles: { fillColor: [71, 85, 105], textColor: [255, 255, 255] },
+        headStyles: {
+          fillColor: [241, 245, 249],
+          textColor: [0, 0, 0],
+          fontStyle: 'bold',
+        },
         styles: { fontSize: 8 },
         margin: { left: margin, right: margin },
       })
@@ -581,19 +585,19 @@ export const generateInvoicePDF = async (
     }
   
     // Footer / Signatures
-    if (currentY > pageHeight - 40) {
+    if (currentY > pageHeight - 20) {
       doc.addPage()
       currentY = 30
     }
   
-    doc.setDrawColor(203, 213, 225)
-    doc.line(margin, currentY, margin + 50, currentY)
-    doc.line(pageWidth - margin - 50, currentY, pageWidth - margin, currentY)
+    // doc.setDrawColor(203, 213, 225)
+    // doc.line(margin, currentY, margin + 50, currentY)
+    // doc.line(pageWidth - margin - 50, currentY, pageWidth - margin, currentY)
   
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Guest Signature', margin + 10, currentY + 5)
-    doc.text('Authorized Signatory', pageWidth - margin - 45, currentY + 5)
+    // doc.setFontSize(9)
+    // doc.setFont('helvetica', 'bold')
+    // doc.text('Guest Signature', margin + 10, currentY + 5)
+    // doc.text('Authorized Signatory', pageWidth - margin - 45, currentY + 5)
   
     doc.setFontSize(8)
     doc.setFont('helvetica', 'italic')
